@@ -1,59 +1,7 @@
 let ws;
 let username;
-let aesKey; // AES 密钥
-let iv; // 初始化向量 (IV)
 
-// RSA 公钥（假设你已经有服务器的公钥，应该是 PEM 格式）
-const serverPublicKeyPem = `
------BEGIN PUBLIC KEY-----
-MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEApp8DD8yjS8vYmeVxzNpy
-MArg20G4QCw4th1Pl9jddcfR1wkCUbLcXzziE1ab8seQrKklCqi7LA2yKGAtslBO
-mxyQihfbTwTWtOacgXMngnoKmL6HDLHSvR4/ju4kMu0MBl9D6WECxIWxYic36NCp
-vR0bKJDomKsi51MGa2E95+9WrhVNy8Huy/WfXQ4XKapJ4mrtiGsY9GJFC6CmUwsC
-OzSY3kmLVlymMkYb2jAX09kCdufY4cg5L24J/u1KMROvSbckF2dfvJJzyKP5rr4g
-u62Xbt16mgtW76tuAtfoQgd3iWVgprmCC0Rltjoqp+rIjRIixmL0mrQnU/1Z6LhU
-7wIDAQAB
------END PUBLIC KEY-----
-`;
-
-// PEM 转为 ArrayBuffer（用于 Web Crypto API）
-function pemToArrayBuffer(pem) {
-    const b64Lines = pem.replace(/(-----(BEGIN|END) PUBLIC KEY-----|\n)/g, '');
-    const b64 = atob(b64Lines);
-    const buffer = new ArrayBuffer(b64.length);
-    const view = new Uint8Array(buffer);
-    for (let i = 0; i < b64.length; i++) {
-        view[i] = b64.charCodeAt(i);
-    }
-    return buffer;
-}
-
-// 使用 Web Crypto API 导入 RSA 公钥
-async function importServerPublicKey(pemKey) {
-    const keyBuffer = pemToArrayBuffer(pemKey);
-    return await window.crypto.subtle.importKey(
-        'spki',
-        keyBuffer,
-        {
-            name: 'RSA-OAEP',
-            hash: 'SHA-256'
-        },
-        true,
-        ['encrypt']
-    );
-}
-
-// 登录按钮点击事件
-document.getElementById('login-btn').addEventListener('click', () => {
-    username = document.getElementById('username').value;
-    if (username) {
-        initWebSocket(); // 初始化 WebSocket 连接
-        document.getElementById('login-container').style.display = 'none';
-        generateAESKey(); // 生成 AES 密钥
-    }
-});
-
-// 初始化 WebSocket 连接
+// Initialize WebSocket connection
 function initWebSocket() {
     ws = new WebSocket(`ws://${window.location.host}`); // Connect to the WebSocket server
 
@@ -169,23 +117,15 @@ function updateOnlineUsers(users) {
     const onlineUsers = document.getElementById('online-users');
     onlineUsers.innerHTML = '';
     users.forEach(user => {
-        // 创建新的列表项
         const li = document.createElement('li');
         li.textContent = user;
         onlineUsers.appendChild(li);
-
-        const option = document.createElement('option');
-        option.value = user;
-        option.textContent = user;
-        recipientSelect.appendChild(option);
     });
 }
 
 // Display messages in chat
 function displayMessage(from, message) {
     const chatMessages = document.getElementById('chat-messages');
-    
-    // 创建一个新的 div 来显示消息
     const messageDiv = document.createElement('div');
 
     // Display "You" if the message is from the current user
