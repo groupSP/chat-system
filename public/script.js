@@ -146,5 +146,5 @@ function displayFileLink(fileName, fileLink, from) {
     
     const messageDiv = document.createElement('div');
     messageDiv.appendChild(link);
-    chatMessages.appendChild(messageDiv);
+    chatMessages.appendChild(messageDiv); 
 }
