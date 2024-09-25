@@ -13,5 +13,13 @@
   "dependencies": {
     "express": "^4.21.0",
     "ws": "^8.18.0"
-  }
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/groupSP/new.git"
+  },
+  "bugs": {
+    "url": "https://github.com/groupSP/new/issues"
+  },
+  "homepage": "https://github.com/groupSP/new#readme"
 }
