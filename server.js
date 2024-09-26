@@ -21,6 +21,7 @@ const upload = multer({ dest: 'uploads/' }); // Files will be stored in the "upl
 
 // Store online users
 let clients = {};
+let messageCounters = {}; // 存储每个用户的消息计数器
 
 // RSA Decrypt AES Key Function
 function decryptAESKey(encryptedKey) {
@@ -72,34 +73,36 @@ wss.on('connection', (ws) => {
   ws.on('message', (message) => {
     const data = JSON.parse(message);
 
-    // Handle user login and assign username
-    if (data.type === 'login') {
-      userName = data.name;
+    // Handle user login and assign username from hello message
+    if (data.type === 'hello') {
+      userName = data.name; // 存储用户名
       clients[userName] = ws; // Store WebSocket connection with username as the key
+      messageCounters[userName] = 0; // 初始化计数器
 
       // Notify all users about the updated online user list
       broadcastOnlineUsers(); // Broadcast the online user list
     }
 
-    // Handle private messages
-    if (data.type === 'privateMessage') {
-      const recipientWs = clients[data.to];
-      if (recipientWs) {
-        recipientWs.send(JSON.stringify({
-          type: 'privateMessage',
+    if (data.counter && data.counter > messageCounters[userName]) {
+      messageCounters[userName] = data.counter; // 更新计数器
+      
+      // 处理私信和群组消息
+      if (data.type === 'privateMessage') {
+        const recipientWs = clients[data.to];
+        if (recipientWs) {
+          recipientWs.send(JSON.stringify({
+            type: 'privateMessage',
+            from: userName,
+            message: data.message
+          }));
+        }
+      } else if (data.type === 'groupMessage') {
+        broadcast({
+          type: 'groupMessage',
           from: userName,
           message: data.message
-        }));
+        });
       }
-    }
-
-    // Handle group messages
-    if (data.type === 'groupMessage') {
-      broadcast({
-        type: 'groupMessage',
-        from: userName,
-        message: data.message
-      });
     }
 
     // Handle file transfers
@@ -117,6 +120,7 @@ wss.on('connection', (ws) => {
     if (data.type === 'chat') {
       console.log('Encrypted AES Key:', data.symm_keys[0]); // Debug: Print the received encrypted AES key
       const aesKey = decryptAESKey(data.symm_keys[0]); // Decrypt AES key
+
       if (aesKey) {
         try {
           const iv = Buffer.from(data.iv, 'base64');

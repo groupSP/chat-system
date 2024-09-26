@@ -2,6 +2,7 @@ let ws;
 let username;
 let aesKey; // AES 密钥
 let iv; // 初始化向量 (IV)
+let messageCounter = 0; // 增加消息计数器
 
 // Server's RSA Public Key (replace with actual PEM key)
 const serverPublicKeyPem = `-----BEGIN PUBLIC KEY-----
@@ -116,7 +117,12 @@ function initWebSocket() {
 
     ws.onopen = () => {
         console.log("WebSocket connection opened.");
-        ws.send(JSON.stringify({ type: 'login', name: username }));
+        // 发送 hello 消息，包括用户名和公钥
+        ws.send(JSON.stringify({
+            type: 'hello',
+            public_key: serverPublicKeyPem, // 发送 RSA 公钥以验证身份
+            name: username // 发送用户名
+        }));
     };
 
     ws.onmessage = (event) => {
@@ -135,19 +141,20 @@ function initWebSocket() {
         // Handle file transfer
         if (data.type === 'fileTransfer') {
             console.log(`Received file: ${data.fileName} from ${data.from}`);
+            displayFileLink(data.from, data.fileName, data.fileLink);
     
             // Create a download link for the received file
-            const fileLink = data.fileLink; // Get the file link sent from the server
-            const messageDiv = document.createElement('div');
+            // const fileLink = data.fileLink; // Get the file link sent from the server
+            // const messageDiv = document.createElement('div');
             
-            const link = document.createElement('a');
-            link.href = fileLink;  // This should point to /files/:filename
-            link.download = data.fileName;  // Suggest a filename for download
-            link.textContent = `${data.from} sent a file: ${data.fileName}`;  // Display sender and file name
-            link.target = "_blank"; // Optional: prevents opening a new tab
+            // const link = document.createElement('a');
+            // link.href = fileLink;  // This should point to /files/:filename
+            // link.download = data.fileName;  // Suggest a filename for download
+            // link.textContent = `${data.from} sent a file: ${data.fileName}`;  // Display sender and file name
+            // link.target = "_blank"; // Optional: prevents opening a new tab
     
-            messageDiv.appendChild(link);
-            document.getElementById('chat-messages').appendChild(messageDiv);
+            // messageDiv.appendChild(link);
+            // document.getElementById('chat-messages').appendChild(messageDiv);
         }
     };
 
@@ -165,42 +172,47 @@ function initWebSocket() {
 document.addEventListener("DOMContentLoaded", () => {
     // Login button click event
     document.getElementById('login-btn').addEventListener('click', () => {
-        username = document.getElementById('username').value;
+        username = document.getElementById('username').value.trim(); // 确保用户名不为空
         if (username) {
             initWebSocket(); // Initialize WebSocket connection
-            document.getElementById('login-container').style.display = 'none';
+            document.getElementById('login-container').style.display = 'none'; // 隐藏登录界面
             generateAESKey(); // Generate AES Key after login
+        } else {
+            alert("Please enter a valid username!"); // 如果用户名为空，提醒用户
         }
     });
 
     // Send message button click event
     document.getElementById('send-message').addEventListener('click', async () => {
         const message = document.getElementById('message').value;
-        const recipient = document.getElementById('recipient').value; // Get the selected recipient
+        const recipient = document.getElementById('recipient').value; // 获取选定的收件人
     
         if (message) {
             const encryptedMessage = await encryptMessage(message);
             const encryptedAESKey = await exportAndEncryptAESKey();
+            messageCounter++; // 增加计数器
     
-            // Determine whether it's a group or private message
+            // 确定是群组消息还是私人消息
             const messageType = recipient === 'group' ? 'groupMessage' : 'privateMessage';
     
             ws.send(JSON.stringify({
                 type: messageType,
-                message: message, // Original message
+                message: message, // 原始消息
                 encryptedMessage: encryptedMessage.encryptedMessage,
                 authTag: encryptedMessage.authTag,
                 iv: encryptedMessage.iv,
-                symm_key: encryptedAESKey, // Encrypted AES key
-                to: recipient // Only for private messages
+                symm_key: encryptedAESKey, // 加密的 AES 密钥
+                to: recipient, // 私人消息的收件人
+                counter: messageCounter // 添加消息计数器以防止重放攻击
             }));
     
-            displayMessage('You', message); // Display the message locally
-            document.getElementById('message').value = ''; // Clear the input field
+            displayMessage('You', message); // 本地显示消息
+            document.getElementById('message').value = ''; // 清空输入框
         }
     });
     
-
+    
+    
     // Send file button click event
     document.getElementById('send-file').addEventListener('click', () => {
         const fileInput = document.getElementById('file-input');
@@ -272,16 +284,28 @@ function displayMessage(from, message) {
 }
 
 // Display file download link
-function displayFileLink(fileName, fileLink, from) {
+function displayFileLink(from, fileName, fileLink) {
+    console.log("Displaying file from: ", from, "fileName: ", fileName, "fileLink: ", fileLink); // Debugging log
+
     const chatMessages = document.getElementById('chat-messages');
-    const link = document.createElement('a');
     
-    link.href = fileLink;  // Link to the file
-    link.download = fileName;  // Suggest a filename for download
-    link.textContent = `${from} sent a file: ${fileName}`;  // Display sender and file name
-    link.target = "_blank"; // Open link in a new tab
-    
+    // Create a div to hold the message
     const messageDiv = document.createElement('div');
+    
+    // Create the text node for "b sent a file: "
+    const textNode = document.createTextNode(`${from} sent a file: `);
+    
+    // Create the anchor element for the file link
+    const link = document.createElement('a');
+    link.href = fileLink;  // Set the file link
+    link.download = fileName;  // Suggest a filename for download
+    link.textContent = fileName;  // Only the file name is clickable
+    link.target = "_blank";  // Open link in a new tab
+    
+    // Append the text node and the link to the message div
+    messageDiv.appendChild(textNode);
     messageDiv.appendChild(link);
-    chatMessages.appendChild(messageDiv); 
+    
+    // Append the message div to the chat messages
+    chatMessages.appendChild(messageDiv);
 }
