@@ -106,15 +106,28 @@ wss.on('connection', (ws) => {
     }
 
     // Handle file transfers
-    if (data.type === 'fileTransfer') {
-      const fileLink = `http://${server.address().address}:${server.address().port}/files/${data.fileName}`;
-      broadcast({
-        type: 'fileTransfer',
-        from: userName,
-        fileName: data.fileName,
-        fileLink: fileLink // Send a file link instead of the file itself
-      });
+  if (data.type === 'fileTransfer') {
+    const fileLink = `http://${server.address().address}:${server.address().port}/files/${data.fileName}`;
+    
+    if (data.to && clients[data.to]) {
+        // Send file to a specific user
+        clients[data.to].send(JSON.stringify({
+            type: 'fileTransfer',
+            from: userName,
+            fileName: data.fileName,
+            fileLink: fileLink
+        }));
+    } else {
+        // Broadcast file to all users (Group Chat)
+        broadcast({
+            type: 'fileTransfer',
+            from: userName,
+            fileName: data.fileName,
+            fileLink: fileLink
+        });
     }
+  }
+
 
     // Handle encrypted chat
     if (data.type === 'chat') {

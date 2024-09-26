@@ -217,11 +217,12 @@ document.addEventListener("DOMContentLoaded", () => {
     document.getElementById('send-file').addEventListener('click', () => {
         const fileInput = document.getElementById('file-input');
         const file = fileInput.files[0];
-
+        const recipient = document.getElementById('recipient').value; // Get selected recipient (group or user)
+    
         if (file) {
             const formData = new FormData();
             formData.append('file', file);
-
+    
             // Send file to the server using fetch
             fetch('/upload', {
                 method: 'POST',
@@ -235,21 +236,28 @@ document.addEventListener("DOMContentLoaded", () => {
             })
             .then(data => {
                 const fileName = data.fileName; // Get the file name returned from the server
+                const fileLink = `http://${window.location.host}/files/${fileName}`; // Construct the file link
+    
+                // Send file through WebSocket with the recipient specified (group or individual user)
                 ws.send(JSON.stringify({
                     type: 'fileTransfer',
-                    fileName: fileName // Send file name through WebSocket
+                    fileName: fileName,
+                    to: recipient // Send to the selected recipient (user or group)
                 }));
-                displayMessage('You', `Sent a file: ${fileName}`); // Display the message locally
+    
+                // Display the file link locally for the sender as well
+                displayFileLink('You', fileName, fileLink);
             })
             .catch(error => {
                 console.error('Error uploading file:', error);
-                alert('Error uploading file: ' + error.message); // Show error to user
+                alert('Error uploading file: ' + error.message);
             });
         } else {
-            alert('Please select a file to upload.'); // Prompt user to select a file
+            alert('Please select a file to upload.');
         }
     });
 });
+    
 
 // Update the recipient dropdown with online users
 function updateOnlineUsers(users) {
@@ -285,27 +293,26 @@ function displayMessage(from, message) {
 
 // Display file download link
 function displayFileLink(from, fileName, fileLink) {
-    console.log("Displaying file from: ", from, "fileName: ", fileName, "fileLink: ", fileLink); // Debugging log
+    console.log(`Displaying file from ${from}: ${fileName}, link: ${fileLink}`);
 
     const chatMessages = document.getElementById('chat-messages');
-    
-    // Create a div to hold the message
     const messageDiv = document.createElement('div');
     
-    // Create the text node for "b sent a file: "
+    // Create the text node for "sent a file: "
     const textNode = document.createTextNode(`${from} sent a file: `);
     
     // Create the anchor element for the file link
     const link = document.createElement('a');
-    link.href = fileLink;  // Set the file link
-    link.download = fileName;  // Suggest a filename for download
-    link.textContent = fileName;  // Only the file name is clickable
-    link.target = "_blank";  // Open link in a new tab
+    link.href = fileLink;
+    link.download = fileName;
+    link.textContent = fileName;
+    link.target = "_blank";
     
-    // Append the text node and the link to the message div
+    // Append the text and link to the message div
     messageDiv.appendChild(textNode);
     messageDiv.appendChild(link);
     
-    // Append the message div to the chat messages
+    // Append the message div to the chat
     chatMessages.appendChild(messageDiv);
 }
+
