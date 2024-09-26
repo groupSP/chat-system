@@ -29,6 +29,24 @@ function pemToArrayBuffer(pem) {
     return buffer;
 }
 
+async function signMessage(data, counter) {
+    const encoder = new TextEncoder();
+    const messageToSign = encoder.encode(JSON.stringify(data) + counter);
+
+    // Sign the message using the private key
+    const signature = await window.crypto.subtle.sign(
+        {
+            name: "RSA-PSS",
+            saltLength: 32
+        },
+        privateKey,  // You need to have the private key imported
+        messageToSign
+    );
+
+    return btoa(String.fromCharCode.apply(null, new Uint8Array(signature)));
+}
+
+
 async function importServerPublicKey(pemKey) {
     const keyBuffer = pemToArrayBuffer(pemKey);
     return await window.crypto.subtle.importKey(
@@ -297,7 +315,10 @@ document.getElementById('cancel-forward-btn').addEventListener('click', () => {
         }
 
         if (data.type === 'fileTransfer') {
-            displayFileLink(data.from, data.fileName, data.fileLink);
+            // displayFileLink(data.from, data.fileName, data.fileLink);
+            if (data.from !== username) {
+                displayFileLink(data.from, data.fileName, data.fileLink); // 其他用户的文件
+            }
         }
     };
 
@@ -392,7 +413,7 @@ document.addEventListener("DOMContentLoaded", () => {
                     to: recipient
                 }));
 
-                // displayFileLink('You', fileName, fileLink);
+                displayFileLink('You', fileName, fileLink);
             })
             .catch(error => {
                 alert('Error uploading file: ' + error.message);
