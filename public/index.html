@@ -18,11 +18,11 @@
                 <input type="text" id="message" placeholder="Type your message...">
                 <select id="recipient">
                     <option value="group">Group Chat</option>
-                    <!-- Dynamic list of online users will be added here for private messaging -->
                 </select>
                 <button id="send-message">Send</button>
                 <input type="file" id="file-input">
                 <button id="send-file">Send File</button>
+                <button id="forward-file">Forward</button>
             </div>
         </div>
     </div>
@@ -30,6 +30,16 @@
     <div class="login-container" id="login-container">
         <input type="text" id="username" placeholder="Enter your name">
         <button id="login-btn">Login</button>
+    </div>
+
+    <!-- Forward Modal -->
+    <div id="forward-modal" class="modal">
+        <div class="modal-content">
+            <h4>Select User to Forward Message</h4>
+            <select id="forward-user-list"></select>
+            <button id="forward-btn">Forward</button>
+            <button id="cancel-forward-btn">Cancel</button>
+        </div>
     </div>
 
     <script src="script.js"></script>
