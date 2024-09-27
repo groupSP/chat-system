@@ -374,7 +374,7 @@ document.addEventListener("DOMContentLoaded", () =>
         }
     });
 
-
+ 
     // 绑定发送消息的点击事件
     document.getElementById('send-message').addEventListener('click', async () =>
     {
