@@ -1,0 +1,94 @@
+#include <iostream>
+#include <stdio.h>
+#include <string>
+#include <math.h>
+#include <vector>
+#include <array>
+#include <numeric>
+#include <bitset>
+#include <cstdlib>
+#include <fstream>
+#include <sstream>
+#include <stack>
+#include <algorithm>
+#include <list>
+#include <limits>
+#include <unordered_map>
+#include <queue>
+#include <set>
+
+using namespace std;
+
+class PrefixFreeSets
+{
+public:
+    int maxElements(vector<string> words)
+    {
+        for (auto it = words.rbegin(); it != words.rend() && words.size() > 1;)
+        {
+            bool removed = false;
+            for (auto jt = next(it); jt != words.rend();)
+            {
+                if (it->find(*jt) == 0 || jt->find(*it) == 0)
+                {
+                    removed = true;
+                    // cout << "*it = " << *it << endl
+                    //      << "*jt = " << *jt << endl<<endl;
+                    if (it->length() < jt->length())
+                    {
+                        it = vector<string>::reverse_iterator(words.erase((++it).base()));
+                        // for (auto i : words)
+                        //     cout << i << endl;
+                        // cout << "---------------------" << endl;
+                        break;
+                    }
+                    else{
+                        jt = vector<string>::reverse_iterator(words.erase((++jt).base()));
+                        ++it;
+                    }
+
+                    // for (auto i : words)
+                    //     cout << i << endl;
+                    // cout << "---------------------" << endl;
+                }
+                else
+                    ++jt;
+            }
+            // if (removed)
+            //     it = vector<string>::reverse_iterator(words.erase((++it).base()));
+            // else
+            if (!removed)
+                ++it;
+        }
+        auto size = words.size();
+        return size < 51 ? size : 1;
+    }
+};
+
+// int main()
+// {
+//     PrefixFreeSets p;
+//     cout << p.maxElements(
+//                 // {"hello", "hi", "h", "run", "rerun", "running"}
+//                 // {"a", "b", "cba", "cbc", "cbb", "ccc"}
+//                 // {"a", "ab", "abc", "abcd", "abcde", "abcdef"}
+//                 {"topcoder", "topcoder", "topcoding"}
+
+//                 )
+//          << endl;
+
+//     string s = "running";
+//     string toFind = "rerun";
+
+//     // Use find to check if toFind is in s
+//     cout << "s.find(toFind) = " << s.find(toFind) << endl
+//          << "toFind.find(s) = " << toFind.find(s) << endl;
+//     // if (s.find(toFind) != string::npos)
+//     // {
+//     //     cout << "'" << toFind << "' is a substring of '" << s << "'   : " << s.find(toFind) << endl;
+//     // }
+//     // else
+//     // {
+//     //     cout << "'" << toFind << "' is not a substring of '" << s << "'   : " << s.find(toFind) << endl;
+//     // }
+// }

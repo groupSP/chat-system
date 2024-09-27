@@ -468,9 +468,18 @@ document.addEventListener("DOMContentLoaded", () =>
                 method: 'POST',
                 body: formData
             })
-                .then(response => response.json())
+                .then(response =>
+                {
+                    if (response.ok)
+                        return response.json();
+                    else if (response.status === 413)
+                        console.error('File size too large.');
+                    else
+                        console.error('File upload failed with status:', response.status);
+                })
                 .then(data =>
                 {
+                    if(!data) return;
                     const fileName = data.fileName;  // Ensure your server returns the file name upon successful upload
                     const recipient = document.getElementById('recipient').value;
 
@@ -489,6 +498,7 @@ document.addEventListener("DOMContentLoaded", () =>
                 {
                     console.error('Error uploading file:', error);
                 });
+
         }
     });
 });
@@ -556,4 +566,31 @@ async function verifySignature(data, counter, signature)
         signatureBytes,
         messageToVerify
     );
+}
+
+// Not tested yet
+async function retrieveFile(fileUrl)
+{
+    try {
+        const response = await fetch(fileUrl);
+
+        if (response.ok) {
+            const blob = await response.blob(); // Get the file as a Blob
+            const downloadUrl = URL.createObjectURL(blob);
+
+            // Optionally create an anchor element to download the file
+            const a = document.createElement('a');
+            a.href = downloadUrl;
+            a.download = 'downloaded-file'; // You can set the default name here
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+
+            console.log('File retrieved successfully');
+        } else {
+            console.error('Failed to retrieve the file:', response.status);
+        }
+    } catch (error) {
+        console.error('Error retrieving file:', error);
+    }
 }
