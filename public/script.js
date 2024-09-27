@@ -197,7 +197,7 @@ function displayMessage(from, message)
     messageDiv.appendChild(messageContent);
     chatMessages.appendChild(messageDiv);
 }
-
+ 
 
 // Initialize WebSocket connection
 function initWebSocket()
