@@ -10,8 +10,7 @@ let onlineUsers = []; // Stores online users
 let serverPublicKeyPem = ''; // public key
 
 // RSA
-function pemToArrayBuffer(pem)
-{
+function pemToArrayBuffer(pem) {
     const b64Lines = pem.replace(/(-----(BEGIN|END) PUBLIC KEY-----|\n)/g, '');
     const b64 = atob(b64Lines);
     const buffer = new ArrayBuffer(b64.length);
@@ -22,8 +21,7 @@ function pemToArrayBuffer(pem)
     return buffer;
 }
 
-async function signMessage(data, counter)
-{
+async function signMessage(data, counter) {
     const encoder = new TextEncoder();
     const messageToSign = encoder.encode(JSON.stringify(data) + counter);
 
@@ -40,9 +38,7 @@ async function signMessage(data, counter)
     return btoa(String.fromCharCode.apply(null, new Uint8Array(signature)));
 }
 
-
-async function importServerPublicKey(pemKey)
-{
+async function importServerPublicKey(pemKey) {
     const keyBuffer = pemToArrayBuffer(pemKey);
     return await window.crypto.subtle.importKey(
         'spki',
@@ -56,8 +52,7 @@ async function importServerPublicKey(pemKey)
     );
 }
 
-async function fetchPublicKey()
-{
+async function fetchPublicKey() {
     try {
         const response = await fetch('/public-key');
         const data = await response.json();
@@ -73,9 +68,7 @@ async function fetchPublicKey()
     }
 }
 
-
-function generateAESKey()
-{
+function generateAESKey() {
     window.crypto.subtle.generateKey(
         {
             name: "AES-GCM",
@@ -83,18 +76,15 @@ function generateAESKey()
         },
         true,
         ["encrypt", "decrypt"]
-    ).then(key =>
-    {
+    ).then(key => {
         aesKey = key;
         console.log('AES Key Generated', aesKey);
-    }).catch(err =>
-    {
+    }).catch(err => {
         console.error('Error generating AES key:', err);
     });
 }
 
-function encryptMessage(message)
-{
+function encryptMessage(message) {
     iv = window.crypto.getRandomValues(new Uint8Array(12));
     const encoder = new TextEncoder();
     const encodedMessage = encoder.encode(message);
@@ -106,8 +96,7 @@ function encryptMessage(message)
         },
         aesKey,
         encodedMessage
-    ).then(encryptedMessage =>
-    {
+    ).then(encryptedMessage => {
         const encryptedArray = new Uint8Array(encryptedMessage);
         const ciphertext = encryptedArray.slice(0, -16);
         const authTag = encryptedArray.slice(-16);
@@ -117,14 +106,12 @@ function encryptMessage(message)
             authTag: btoa(String.fromCharCode.apply(null, authTag)),
             iv: btoa(String.fromCharCode.apply(null, iv))
         };
-    }).catch(err =>
-    {
+    }).catch(err => {
         console.error('Error encrypting message:', err);
     });
 }
 
-async function exportAndEncryptAESKey()
-{
+async function exportAndEncryptAESKey() {
     const rawAESKey = await window.crypto.subtle.exportKey('raw', aesKey);
     const publicKey = await importServerPublicKey(serverPublicKeyPem);
     const encryptedAESKey = await window.crypto.subtle.encrypt(
@@ -139,12 +126,10 @@ async function exportAndEncryptAESKey()
 }
 
 // Forward message functionality
-document.getElementById('forward-btn').addEventListener('click', () =>
-{
+document.getElementById('forward-btn').addEventListener('click', () => {
     const selectedUser = document.getElementById('forward-user-list').value;
 
-    selectedMessages.forEach(message =>
-    {
+    selectedMessages.forEach(message => {
         // Forwarding only text messages
         ws.send(JSON.stringify({
             type: 'forwardMessage',
@@ -161,8 +146,7 @@ document.getElementById('forward-btn').addEventListener('click', () =>
     selectedMessages = [];
 });
 
-function selectMessage(message, checkbox)
-{
+function selectMessage(message, checkbox) {
     if (checkbox.checked) {
         selectedMessages.push(message);
     } else {
@@ -172,8 +156,7 @@ function selectMessage(message, checkbox)
 
 let processedMessages = new Set(); // 存储已经处理的消息ID
 
-function displayMessage(from, message)
-{
+function displayMessage(from, message) {
     // 为消息生成一个唯一标识符，例如使用消息内容和发送者
     const messageId = `${from}-${message}`;
 
@@ -199,10 +182,8 @@ function displayMessage(from, message)
     chatMessages.appendChild(messageDiv);
 }
 
-
 // Initialize WebSocket connection
-function initWebSocket()
-{
+function initWebSocket() {
     if (ws && ws.readyState === WebSocket.OPEN) {
         console.log("WebSocket already connected.");
         ws.close();
@@ -210,8 +191,7 @@ function initWebSocket()
 
     ws = new WebSocket(`ws://${window.location.host}`);
 
-    ws.onopen = () =>
-    {
+    ws.onopen = () => {
         console.log("WebSocket connection opened.");
         ws.send(JSON.stringify({
             type: 'hello',
@@ -221,18 +201,14 @@ function initWebSocket()
         }));
     };
 
-    // 计算公钥的SHA-256指纹
-    async function computeFingerprint(publicKeyPem)
-    {
+    async function computeFingerprint(publicKeyPem) {
         const keyBuffer = pemToArrayBuffer(publicKeyPem);
         const hash = await window.crypto.subtle.digest('SHA-256', keyBuffer);
         return btoa(String.fromCharCode.apply(null, new Uint8Array(hash)));
     }
 
-
     // Forward button opens the modal to choose the recipient
-    document.getElementById('forward-file').addEventListener('click', () =>
-    {
+    document.getElementById('forward-file').addEventListener('click', () => {
         const modal = document.getElementById('forward-modal');
         const forwardList = document.getElementById('forward-user-list');
 
@@ -240,8 +216,7 @@ function initWebSocket()
         forwardList.innerHTML = '';
 
         // Populate the online user list, excluding the current user and ignoring undefined or empty users
-        onlineUsers.forEach(user =>
-        {
+        onlineUsers.forEach(user => {
             if (user !== username && user && user.trim() !== 'undefined') {
                 const option = document.createElement('option');
                 option.value = user;
@@ -254,14 +229,11 @@ function initWebSocket()
         modal.style.display = 'block';
     });
 
-
     // Forwarding the selected message to the chosen user
-    document.getElementById('forward-btn').addEventListener('click', () =>
-    {
+    document.getElementById('forward-btn').addEventListener('click', () => {
         const selectedUser = document.getElementById('forward-user-list').value;
 
-        selectedMessages.forEach(message =>
-        {
+        selectedMessages.forEach(message => {
             // Forwarding the message to the selected user
             ws.send(JSON.stringify({
                 type: 'forwardMessage',
@@ -281,16 +253,14 @@ function initWebSocket()
     });
 
     // Cancel the forward action and hide the modal
-    document.getElementById('cancel-forward-btn').addEventListener('click', () =>
-    {
+    document.getElementById('cancel-forward-btn').addEventListener('click', () => {
         document.getElementById('forward-modal').style.display = 'none';
         selectedMessages = []; // Clear selected messages
     });
 
     let processedFileMessages = new Set(); // Store processed file messages
 
-    ws.onmessage = (event) =>
-    {
+    ws.onmessage = (event) => {
         const data = JSON.parse(event.data);
         console.log("Received WebSocket message:", data);
 
@@ -313,71 +283,68 @@ function initWebSocket()
 
         // Handle file transfer messages
         if (data.type === 'fileTransfer') {
-            // Make sure the fileName and from fields exist in the received data
+            // Make sure the fileName and from fields exist in the message
             if (data.fileName && data.from) {
-                // Declare fileMessageId to avoid reference errors
-                const fileMessageId = `${data.from}-${data.fileName}`;
-
-                // Check if the file message has already been processed
-                if (!processedFileMessages.has(fileMessageId)) {
-                    processedFileMessages.add(fileMessageId); // Mark the message as processed
-
-                    // Only display the file if it wasn't sent by the current user
-                    if (data.from !== username) {
-                        displayFileLink(data.from, data.fileName, data.fileLink); // Display the file link
-                    }
-                } else {
-                    console.log(`Duplicate file message ignored: ${fileMessageId}`);
+                // Ensure the message is unique before displaying
+                const messageId = `${data.from}-${data.fileName}`;
+                if (!processedFileMessages.has(messageId)) {
+                    processedFileMessages.add(messageId);
+                    displayMessage(data.from, `File received: ${data.fileName}`);
                 }
-            } else {
-                console.error(`Missing fileName or from in the fileTransfer message\ndata.fileName = ${data.fileName}\ndata.from = ${data.from}`);
             }
         }
+
+        // Handle any other types of messages you may have
     };
 
-    ws.onerror = (error) =>
-    {
+    ws.onclose = () => {
+        console.log("WebSocket connection closed.");
+        setTimeout(initWebSocket, 2000); // Try to reconnect every 2 seconds
+    };
+
+    ws.onerror = (error) => {
         console.error("WebSocket error:", error);
-    };
-
-    ws.onclose = () =>
-    {
-        // setTimeout(initWebSocket, 2000);
     };
 }
 
-document.addEventListener("DOMContentLoaded", () =>
-{
-    fetch('/public-key')
-        .then(response => response.json())
-        .then(data =>
-        {
-            serverPublicKeyPem = data.key; // 设置公钥
-            // 初始化 WebSocket 连接
-            if (!ws || ws.readyState !== WebSocket.OPEN)
-                initWebSocket();
-        });
+// Update the online user list in the UI
+function updateOnlineUsers(users) {
+    const userListElement = document.getElementById('user-list');
+    userListElement.innerHTML = ''; // Clear the current list
 
-    document.getElementById('login-btn').addEventListener('click', () =>
-    {
-        username = document.getElementById('username').value.trim();
-
-        if (username) {
-            document.body.classList.add('logged-in'); // Add class to show online users
-            // if (!ws || ws.readyState !== WebSocket.OPEN) {
-            initWebSocket();
-            // }
-            document.getElementById('login-container').style.display = 'none';
-            generateAESKey();
-        } else {
-            alert('Please enter a valid username.');
-        }
+    users.forEach(user => {
+        const li = document.createElement('li');
+        li.textContent = user;
+        userListElement.appendChild(li);
     });
+}
 
- 
-    // 绑定发送消息的点击事件
-    document.getElementById('send-message').addEventListener('click', async () =>
-    {
+// Start the chat application
+document.addEventListener("DOMContentLoaded", () => {
+    // username = prompt("Enter your name:");
+    // generateAESKey(); // Generate AES key when the app loads
+    // fetchPublicKey(); // Fetch server's public key
+    // initWebSocket(); // Initialize WebSocket connection
+
+    // Handle sending messages
+    document.getElementById('login-btn').addEventListener('click', () =>
+        {
+            username = document.getElementById('username').value.trim();
+    
+            if (username) {
+                document.body.classList.add('logged-in'); // Add class to show online users
+                // if (!ws || ws.readyState !== WebSocket.OPEN) {
+                initWebSocket();
+                // }
+                document.getElementById('login-container').style.display = 'none';
+                generateAESKey();
+            } else {
+                alert('Please enter a valid username.');
+            }
+        });
+    document.getElementById('send-message').addEventListener('click', async (event) => {
+        event.preventDefault(); // Prevent default form submission
+
         const message = document.getElementById('message').value;
         const recipient = document.getElementById('recipient').value;
 
@@ -388,7 +355,7 @@ document.addEventListener("DOMContentLoaded", () =>
 
             const messageType = recipient === 'group' ? 'groupMessage' : 'privateMessage';
 
-            // 发送消息
+            // Send message to the WebSocket server
             ws.send(JSON.stringify({
                 type: messageType,
                 message: message,
@@ -400,48 +367,12 @@ document.addEventListener("DOMContentLoaded", () =>
                 counter: messageCounter,
             }));
 
-            displayMessage('You', message); // 显示发送的消息
-            document.getElementById('message').value = ''; // 清空输入框
-        }
-    });
-
-    document.getElementById('send-file').addEventListener('click', () =>
-    {
-        const fileInput = document.getElementById('file-input');
-        const file = fileInput.files[0];
-        const recipient = document.getElementById('recipient').value;
-
-        if (file) {
-            const formData = new FormData();
-            formData.append('file', file);
-
-            fetch('/upload', {
-                method: 'POST',
-                body: formData
-            })
-                .then(response => response.json())
-                .then(data =>
-                {
-                    const fileName = data.fileName;
-                    const fileLink = `http://${window.location.host}/files/${fileName}`;
-
-                    ws.send(JSON.stringify({
-                        type: 'fileTransfer',
-                        fileName: fileName,
-                        to: recipient,
-                        from: ws.username,
-                        fileLink: data.fileLink
-                    }));
-
-                    displayFileLink('You', fileName, fileLink);
-                })
-                .catch(error =>
-                {
-                    alert('Error uploading file: ' + error.message);
-                });
+            displayMessage('You', message); // Display sent message
+            document.getElementById('message').value = ''; // Clear the input field
         }
     });
 });
+
 
 function updateOnlineUsers(users = [])
 {
