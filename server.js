@@ -16,6 +16,10 @@ const server = http.createServer(app);
 // Initialize WebSocket server
 const wss = new WebSocket.Server({ server });
 
+// Public key
+const publicKeyPath = path.join(__dirname, 'public', 'public.pem');
+const serverPublicKey = fs.readFileSync(publicKeyPath, 'utf8');
+
 // Set up multer for file uploads
 const upload = multer({ dest: 'uploads/' }); // Files will be stored in the "uploads" folder
 
@@ -65,6 +69,7 @@ function broadcast(message, recipient = null) {
 
 // Handle WebSocket connections
 wss.on('connection', (ws) => {
+  ws.send(JSON.stringify({ type: 'publicKey', key: serverPublicKey }));
   let userName = '';
 
   ws.on('message', (message) => {
@@ -139,8 +144,13 @@ wss.on('connection', (ws) => {
   });
 });
 
+app.get('/public-key', (req, res) => {
+  res.json({ key: serverPublicKey });
+});
+
 // Serve uploaded files with forced download
 app.get('/files/:filename', (req, res) => {
+  res.send({ key: serverPublicKey });
   const fileName = req.params.filename;
   const filePath = path.join(__dirname, 'uploads', fileName);
 

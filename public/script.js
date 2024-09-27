@@ -7,15 +7,7 @@ let selectedMessages = []; // Stores selected messages
 let onlineUsers = []; // Stores online users
 
 // Server's RSA Public Key (replace with actual PEM key)
-const serverPublicKeyPem = `-----BEGIN PUBLIC KEY-----
-MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEApp8DD8yjS8vYmeVxzNpy
-MArg20G4QCw4th1Pl9jddcfR1wkCUbLcXzziE1ab8seQrKklCqi7LA2yKGAtslBO
-mxyQihfbTwTWtOacgXMngnoKmL6HDLHSvR4/ju4kMu0MBl9D6WECxIWxYic36NCp
-vR0bKJDomKsi51MGa2E95+9WrhVNy8Huy/WfXQ4XKapJ4mrtiGsY9GJFC6CmUwsC
-OzSY3kmLVlymMkYb2jAX09kCdufY4cg5L24J/u1KMROvSbckF2dfvJJzyKP5rr4g
-u62Xbt16mgtW76tuAtfoQgd3iWVgprmCC0Rltjoqp+rIjRIixmL0mrQnU/1Z6LhU
-7wIDAQAB
------END PUBLIC KEY-----`;
+let serverPublicKeyPem = ''; // public key
 
 // RSA
 function pemToArrayBuffer(pem) {
@@ -60,6 +52,22 @@ async function importServerPublicKey(pemKey) {
         ['encrypt']
     );
 }
+
+async function fetchPublicKey() {
+    try {
+        const response = await fetch('/public-key');
+        const data = await response.json();
+        serverPublicKeyPem = data.key; // 设置公钥
+        if (!serverPublicKeyPem) {
+            console.error('Public key is undefined or empty');
+        } else {
+            initWebSocket(); // 在成功获取公钥后初始化 WebSocket
+        }
+    } catch (error) {
+        console.error('Error fetching public key:', error);
+    }
+}
+
 
 function generateAESKey() {
     window.crypto.subtle.generateKey(
@@ -146,7 +154,18 @@ function selectMessage(message, checkbox) {
     }
 }
 
+let processedMessages = new Set(); // 存储已经处理的消息ID
+
 function displayMessage(from, message) {
+    // 为消息生成一个唯一标识符，例如使用消息内容和发送者
+    const messageId = `${from}-${message}`;
+
+    if (processedMessages.has(messageId)) {
+        return; // 如果消息已处理，则不重复显示
+    }
+
+    processedMessages.add(messageId); // 将消息标记为已处理
+
     const chatMessages = document.getElementById('chat-messages');
     const messageDiv = document.createElement('div');
     
@@ -154,77 +173,15 @@ function displayMessage(from, message) {
     checkbox.type = 'checkbox';
     checkbox.onclick = () => selectMessage(message, checkbox);
 
+    const displayFrom = from === username ? 'You' : from;
     const messageContent = document.createElement('span');
-    messageContent.textContent = from === username ? `You: ${message}` : `${from}: ${message}`;
+    messageContent.textContent = `${displayFrom}: ${message}`;
 
     messageDiv.appendChild(checkbox);
     messageDiv.appendChild(messageContent);
     chatMessages.appendChild(messageDiv);
 }
 
-// // Handle the forward file button click event
-// document.getElementById('forward-file').addEventListener('click', () => {
-//     const modal = document.getElementById('forward-modal');
-//     const forwardList = document.getElementById('forward-user-list');
-
-//     // Clear the previous user list
-//     forwardList.innerHTML = '';
-
-//     // Populate the online user list, excluding the current user
-//     onlineUsers.forEach(user => {
-//         if (user !== username) {
-//             const option = document.createElement('option');
-//             option.value = user;
-//             option.textContent = user;
-//             forwardList.appendChild(option);
-//         }
-//     });
-
-//     // Show the modal to select the user for forwarding
-//     modal.style.display = 'block';
-// });
-
-// When the user confirms the forward, send the selected file to the chosen user
-// document.getElementById('forward-btn').addEventListener('click', () => {
-//     const selectedUser = document.getElementById('forward-user-list').value;
-//     const fileInput = document.getElementById('file-input');
-//     const file = fileInput.files[0];
-
-//     if (file) {
-//         const formData = new FormData();
-//         formData.append('file', file);
-
-//         // Upload the file to the server
-//         fetch('/upload', {
-//             method: 'POST',
-//             body: formData
-//         })
-//         .then(response => response.json())
-//         .then(data => {
-//             const fileName = data.fileName;
-//             const fileLink = `http://${window.location.host}/files/${fileName}`;
-
-//             // Send the file to the selected user
-//             ws.send(JSON.stringify({
-//                 type: 'fileTransfer',
-//                 fileName: fileName,
-//                 to: selectedUser
-//             }));
-
-//             // Display the forwarded file link in the chat
-//             displayFileLink('You (Forwarded)', fileName, fileLink);
-//         })
-//         .catch(error => {
-//             console.error('Error uploading file:', error);
-//             alert('Error uploading file: ' + error.message);
-//         });
-
-//         // Hide the modal after forwarding the file
-//         document.getElementById('forward-modal').style.display = 'none';
-//     } else {
-//         alert('Please select a file to forward.');
-//     }
-// });
 
 // Initialize WebSocket connection
 function initWebSocket() {
@@ -247,26 +204,27 @@ async function computeFingerprint(publicKeyPem) {
 
 
     // Forward button opens the modal to choose the recipient
-document.getElementById('forward-file').addEventListener('click', () => {
-    const modal = document.getElementById('forward-modal');
-    const forwardList = document.getElementById('forward-user-list');
-
-    // Clear the previous user list
-    forwardList.innerHTML = '';
-
-    // Populate the online user list, excluding the current user
-    onlineUsers.forEach(user => {
-        if (user !== username) {
-            const option = document.createElement('option');
-            option.value = user;
-            option.textContent = user;
-            forwardList.appendChild(option);
-        }
+    document.getElementById('forward-file').addEventListener('click', () => {
+        const modal = document.getElementById('forward-modal');
+        const forwardList = document.getElementById('forward-user-list');
+    
+        // Clear the previous user list
+        forwardList.innerHTML = '';
+    
+        // Populate the online user list, excluding the current user and ignoring undefined or empty users
+        onlineUsers.forEach(user => {
+            if (user !== username && user && user.trim() !== 'undefined') {
+                const option = document.createElement('option');
+                option.value = user;
+                option.textContent = user;
+                forwardList.appendChild(option);
+            }
+        });
+    
+        // Show the modal to select the user for forwarding
+        modal.style.display = 'block';
     });
-
-    // Show the modal to select the user for forwarding
-    modal.style.display = 'block';
-});
+    
 
 // Forwarding the selected message to the chosen user
 document.getElementById('forward-btn').addEventListener('click', () => {
@@ -297,14 +255,18 @@ document.getElementById('cancel-forward-btn').addEventListener('click', () => {
     selectedMessages = []; // Clear selected messages
 });
 
-
+let processedFileMessages = new Set();
     ws.onmessage = (event) => {
         const data = JSON.parse(event.data);
+
+        if (data.type === 'publicKey') {
+            serverPublicKeyPem = data.key; // 设置公钥
+        };
 
         // Update onlineUsers when the server sends the online users list
         if (data.type === 'onlineUsers') {
             onlineUsers = data.users; // Store the updated list of users
-            updateOnlineUsers(data.users);
+            updateOnlineUsers(onlineUsers);
         } 
         
         if (data.type === 'privateMessage' || data.type === 'groupMessage') {
@@ -315,11 +277,20 @@ document.getElementById('cancel-forward-btn').addEventListener('click', () => {
         }
 
         if (data.type === 'fileTransfer') {
-            // displayFileLink(data.from, data.fileName, data.fileLink);
-            if (data.from !== username) {
-                displayFileLink(data.from, data.fileName, data.fileLink); // 其他用户的文件
+            // 生成文件消息的唯一标识符，例如根据发送者和文件名
+            const fileMessageId = `${data.from}-${data.fileName}`;
+    
+            // 检查文件消息是否已经处理过，避免重复显示
+            if (!processedFileMessages.has(fileMessageId)) {
+                processedFileMessages.add(fileMessageId); // 标记为已处理
+    
+                // 只有当消息不是由自己发送时，才显示文件
+                if (data.from !== username) {
+                    displayFileLink(data.from, data.fileName, data.fileLink); // 显示文件
+                }
             }
-        }
+        }else{console.log(`Duplicate file message ignored: ${fileMessageId}`);
+    }
     };
 
     ws.onerror = (error) => {
@@ -331,34 +302,28 @@ document.getElementById('cancel-forward-btn').addEventListener('click', () => {
     };
 }
 
-function updateOnlineUsers(users) {
-    const onlineUsersList = document.getElementById('online-users');
-    const recipientDropdown = document.getElementById('recipient');
-    
-    onlineUsersList.innerHTML = '';
-    recipientDropdown.innerHTML = '<option value="group">Group Chat</option>';
-
-    users.forEach(user => {
-        const li = document.createElement('li');
-        li.textContent = user;
-        onlineUsersList.appendChild(li);
-
-        const option = document.createElement('option');
-        option.value = user;
-        option.textContent = user;
-        recipientDropdown.appendChild(option);
-    });
-}
-
 document.addEventListener("DOMContentLoaded", () => {
-    document.getElementById('login-btn').addEventListener('click', () => {
+    fetch('/public-key')
+        .then(response => response.json())
+        .then(data => {
+            serverPublicKeyPem = data.key; // 设置公钥
+            // 初始化 WebSocket 连接
+            initWebSocket();
+        });
+    
+        document.getElementById('login-btn').addEventListener('click', () => {
         username = document.getElementById('username').value.trim();
+
         if (username) {
+            document.body.classList.add('logged-in'); // Add class to show online users
             initWebSocket();
             document.getElementById('login-container').style.display = 'none';
             generateAESKey();
+        } else {
+            alert('Please enter a valid username.');
         }
     });
+        
 
     // 绑定发送消息的点击事件
     document.getElementById('send-message').addEventListener('click', async () => {
@@ -422,7 +387,7 @@ document.addEventListener("DOMContentLoaded", () => {
     });
 });
 
-function updateOnlineUsers(users) {
+function updateOnlineUsers(users = []) {
     const onlineUsersList = document.getElementById('online-users');
     const recipientDropdown = document.getElementById('recipient');
     
@@ -430,14 +395,17 @@ function updateOnlineUsers(users) {
     recipientDropdown.innerHTML = '<option value="group">Group Chat</option>';
 
     users.forEach(user => {
-        const li = document.createElement('li');
-        li.textContent = user;
-        onlineUsersList.appendChild(li);
+        // 检查 user 是否为有效的非空字符串
+        if (user && user.trim() !== 'undefined') {
+            const li = document.createElement('li');
+            li.textContent = user;
+            onlineUsersList.appendChild(li);
 
-        const option = document.createElement('option');
-        option.value = user;
-        option.textContent = user;
-        recipientDropdown.appendChild(option);
+            const option = document.createElement('option');
+            option.value = user;
+            option.textContent = user;
+            recipientDropdown.appendChild(option);
+        }
     });
 }
 
