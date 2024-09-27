@@ -8,9 +8,49 @@ let onlineUsers = []; // Stores online users
 
 // Server's RSA Public Key (replace with actual PEM key)
 let serverPublicKeyPem = ''; // public key
+let privateKey; // This should be initialized somewhere in your code
+
+async function loadPrivateKey()
+{
+    const storedPrivateKey = window.localStorage.getItem('privateKey');
+    if (storedPrivateKey) {
+        privateKey = await crypto.subtle.importKey(
+            'jwk',
+            JSON.parse(storedPrivateKey),
+            { name: 'RSA-PSS', hash: { name: 'SHA-256' } },
+            true,
+            ['sign']
+        );
+    }
+}
+loadPrivateKey();
+
+async function generateKeys()
+{
+    const keyPair = await crypto.subtle.generateKey(
+        {
+            name: 'RSA-PSS',
+            modulusLength: 2048,
+            publicExponent: new Uint8Array([1, 0, 1]),
+            hash: 'SHA-256',
+        },
+        true,
+        ['sign', 'verify']
+    );
+    privateKey = keyPair.privateKey;
+    const publicKey = keyPair.publicKey;
+
+    // Optionally store the keys
+    const exportedPrivateKey = await crypto.subtle.exportKey('jwk', privateKey);
+    window.localStorage.setItem('privateKey', JSON.stringify(exportedPrivateKey));
+}
+generateKeys();
+
+
 
 // RSA
-function pemToArrayBuffer(pem) {
+function pemToArrayBuffer(pem)
+{
     const b64Lines = pem.replace(/(-----(BEGIN|END) PUBLIC KEY-----|\n)/g, '');
     const b64 = atob(b64Lines);
     const buffer = new ArrayBuffer(b64.length);
@@ -21,24 +61,28 @@ function pemToArrayBuffer(pem) {
     return buffer;
 }
 
-async function signMessage(data, counter) {
+async function signMessage(message, messageCounter)
+{
+    if (!privateKey) {
+        console.error('Private key is not defined');
+        return;
+    }
     const encoder = new TextEncoder();
-    const messageToSign = encoder.encode(JSON.stringify(data) + counter);
-
-    // Sign the message using the private key
-    const signature = await window.crypto.subtle.sign(
+    const messageToSign = encoder.encode(JSON.stringify(message) + messageCounter);
+    const signature = await crypto.subtle.sign(
         {
             name: "RSA-PSS",
-            saltLength: 32
+            saltLength: 32,
         },
-        privateKey,  // You need to have the private key imported
+        privateKey,
         messageToSign
     );
-
-    return btoa(String.fromCharCode.apply(null, new Uint8Array(signature)));
+    return signature;
 }
 
-async function importServerPublicKey(pemKey) {
+
+async function importServerPublicKey(pemKey)
+{
     const keyBuffer = pemToArrayBuffer(pemKey);
     return await window.crypto.subtle.importKey(
         'spki',
@@ -52,7 +96,8 @@ async function importServerPublicKey(pemKey) {
     );
 }
 
-async function fetchPublicKey() {
+async function fetchPublicKey()
+{
     try {
         const response = await fetch('/public-key');
         const data = await response.json();
@@ -68,7 +113,8 @@ async function fetchPublicKey() {
     }
 }
 
-function generateAESKey() {
+function generateAESKey()
+{
     window.crypto.subtle.generateKey(
         {
             name: "AES-GCM",
@@ -76,15 +122,18 @@ function generateAESKey() {
         },
         true,
         ["encrypt", "decrypt"]
-    ).then(key => {
+    ).then(key =>
+    {
         aesKey = key;
         console.log('AES Key Generated', aesKey);
-    }).catch(err => {
+    }).catch(err =>
+    {
         console.error('Error generating AES key:', err);
     });
 }
 
-function encryptMessage(message) {
+function encryptMessage(message)
+{
     iv = window.crypto.getRandomValues(new Uint8Array(12));
     const encoder = new TextEncoder();
     const encodedMessage = encoder.encode(message);
@@ -96,7 +145,8 @@ function encryptMessage(message) {
         },
         aesKey,
         encodedMessage
-    ).then(encryptedMessage => {
+    ).then(encryptedMessage =>
+    {
         const encryptedArray = new Uint8Array(encryptedMessage);
         const ciphertext = encryptedArray.slice(0, -16);
         const authTag = encryptedArray.slice(-16);
@@ -106,12 +156,14 @@ function encryptMessage(message) {
             authTag: btoa(String.fromCharCode.apply(null, authTag)),
             iv: btoa(String.fromCharCode.apply(null, iv))
         };
-    }).catch(err => {
+    }).catch(err =>
+    {
         console.error('Error encrypting message:', err);
     });
 }
 
-async function exportAndEncryptAESKey() {
+async function exportAndEncryptAESKey()
+{
     const rawAESKey = await window.crypto.subtle.exportKey('raw', aesKey);
     const publicKey = await importServerPublicKey(serverPublicKeyPem);
     const encryptedAESKey = await window.crypto.subtle.encrypt(
@@ -126,10 +178,12 @@ async function exportAndEncryptAESKey() {
 }
 
 // Forward message functionality
-document.getElementById('forward-btn').addEventListener('click', () => {
+document.getElementById('forward-btn').addEventListener('click', () =>
+{
     const selectedUser = document.getElementById('forward-user-list').value;
 
-    selectedMessages.forEach(message => {
+    selectedMessages.forEach(message =>
+    {
         // Forwarding only text messages
         ws.send(JSON.stringify({
             type: 'forwardMessage',
@@ -146,7 +200,8 @@ document.getElementById('forward-btn').addEventListener('click', () => {
     selectedMessages = [];
 });
 
-function selectMessage(message, checkbox) {
+function selectMessage(message, checkbox)
+{
     if (checkbox.checked) {
         selectedMessages.push(message);
     } else {
@@ -156,7 +211,8 @@ function selectMessage(message, checkbox) {
 
 let processedMessages = new Set(); // 存储已经处理的消息ID
 
-function displayMessage(from, message) {
+function displayMessage(from, message)
+{
     // 为消息生成一个唯一标识符，例如使用消息内容和发送者
     const messageId = `${from}-${message}`;
 
@@ -183,7 +239,8 @@ function displayMessage(from, message) {
 }
 
 // Initialize WebSocket connection
-function initWebSocket() {
+function initWebSocket()
+{
     if (ws && ws.readyState === WebSocket.OPEN) {
         console.log("WebSocket already connected.");
         ws.close();
@@ -191,7 +248,8 @@ function initWebSocket() {
 
     ws = new WebSocket(`ws://${window.location.host}`);
 
-    ws.onopen = () => {
+    ws.onopen = () =>
+    {
         console.log("WebSocket connection opened.");
         ws.send(JSON.stringify({
             type: 'hello',
@@ -201,14 +259,16 @@ function initWebSocket() {
         }));
     };
 
-    async function computeFingerprint(publicKeyPem) {
+    async function computeFingerprint(publicKeyPem)
+    {
         const keyBuffer = pemToArrayBuffer(publicKeyPem);
         const hash = await window.crypto.subtle.digest('SHA-256', keyBuffer);
         return btoa(String.fromCharCode.apply(null, new Uint8Array(hash)));
     }
 
     // Forward button opens the modal to choose the recipient
-    document.getElementById('forward-file').addEventListener('click', () => {
+    document.getElementById('forward-file').addEventListener('click', () =>
+    {
         const modal = document.getElementById('forward-modal');
         const forwardList = document.getElementById('forward-user-list');
 
@@ -216,7 +276,8 @@ function initWebSocket() {
         forwardList.innerHTML = '';
 
         // Populate the online user list, excluding the current user and ignoring undefined or empty users
-        onlineUsers.forEach(user => {
+        onlineUsers.forEach(user =>
+        {
             if (user !== username && user && user.trim() !== 'undefined') {
                 const option = document.createElement('option');
                 option.value = user;
@@ -230,10 +291,12 @@ function initWebSocket() {
     });
 
     // Forwarding the selected message to the chosen user
-    document.getElementById('forward-btn').addEventListener('click', () => {
+    document.getElementById('forward-btn').addEventListener('click', () =>
+    {
         const selectedUser = document.getElementById('forward-user-list').value;
 
-        selectedMessages.forEach(message => {
+        selectedMessages.forEach(message =>
+        {
             // Forwarding the message to the selected user
             ws.send(JSON.stringify({
                 type: 'forwardMessage',
@@ -253,14 +316,16 @@ function initWebSocket() {
     });
 
     // Cancel the forward action and hide the modal
-    document.getElementById('cancel-forward-btn').addEventListener('click', () => {
+    document.getElementById('cancel-forward-btn').addEventListener('click', () =>
+    {
         document.getElementById('forward-modal').style.display = 'none';
         selectedMessages = []; // Clear selected messages
     });
 
     let processedFileMessages = new Set(); // Store processed file messages
 
-    ws.onmessage = (event) => {
+    ws.onmessage = (event) =>
+    {
         const data = JSON.parse(event.data);
         console.log("Received WebSocket message:", data);
 
@@ -297,22 +362,26 @@ function initWebSocket() {
         // Handle any other types of messages you may have
     };
 
-    ws.onclose = () => {
+    ws.onclose = () =>
+    {
         console.log("WebSocket connection closed.");
         setTimeout(initWebSocket, 2000); // Try to reconnect every 2 seconds
     };
 
-    ws.onerror = (error) => {
+    ws.onerror = (error) =>
+    {
         console.error("WebSocket error:", error);
     };
 }
 
 // Update the online user list in the UI
-function updateOnlineUsers(users) {
+function updateOnlineUsers(users)
+{
     const userListElement = document.getElementById('user-list');
     userListElement.innerHTML = ''; // Clear the current list
 
-    users.forEach(user => {
+    users.forEach(user =>
+    {
         const li = document.createElement('li');
         li.textContent = user;
         userListElement.appendChild(li);
@@ -320,14 +389,16 @@ function updateOnlineUsers(users) {
 }
 
 // Start the chat application
-document.addEventListener("DOMContentLoaded", () => {
+document.addEventListener("DOMContentLoaded", () =>
+{
     // username = prompt("Enter your name:");
     // generateAESKey(); // Generate AES key when the app loads
     // fetchPublicKey(); // Fetch server's public key
     // initWebSocket(); // Initialize WebSocket connection
 
     // Handle sending messages
-    document.getElementById('login-btn').addEventListener('click', () => {
+    document.getElementById('login-btn').addEventListener('click', () =>
+    {
         username = document.getElementById('username').value.trim();
 
         if (username) {
@@ -341,7 +412,9 @@ document.addEventListener("DOMContentLoaded", () => {
             alert('Please enter a valid username.');
         }
     });
-    document.getElementById('send-message').addEventListener('click', async (event) => {
+
+    document.getElementById('send-message').addEventListener('click', async (event) =>
+    {
         event.preventDefault(); // Prevent default form submission
 
         const message = document.getElementById('message').value;
@@ -365,19 +438,27 @@ document.addEventListener("DOMContentLoaded", () => {
                 to: recipient,
                 counter: messageCounter,
             };
-    
+
             // Sign the message and include the signature
-        
+            const signature = await signMessage(messageObject, messageCounter);
+            messageObject.signature = signature;
+
+            // Send the message through WebSocket
+            if (ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify(messageObject));
+            } else {
+                console.error('WebSocket is not open. Message not sent.');
+            }
 
             displayMessage('You', message); // Display sent message
             document.getElementById('message').value = ''; // Clear the input field
         }
     });
 
-    document.getElementById('send-file').addEventListener('click', () => {
+    document.getElementById('send-file').addEventListener('click', () =>
+    {
         const fileInput = document.getElementById('file-input');
         const file = fileInput.files[0];
-        const recipient = document.getElementById('recipient').value;
 
         if (file) {
             const formData = new FormData();
@@ -388,22 +469,25 @@ document.addEventListener("DOMContentLoaded", () => {
                 body: formData
             })
                 .then(response => response.json())
-                .then(data => {
-                    const fileName = data.fileName;
-                    const fileLink = `http://${window.location.host}/files/${fileName}`;
+                .then(data =>
+                {
+                    const fileName = data.fileName;  // Ensure your server returns the file name upon successful upload
+                    const recipient = document.getElementById('recipient').value;
 
-                        ws.send(JSON.stringify({
-                            type: 'fileTransfer',
-                            fileName: fileName,
-                            to: recipient,
-                            from: ws.username,
-                            fileLink: data.fileLink
-                        }));
+                    // Notify the recipient via WebSocket
+                    ws.send(JSON.stringify({
+                        type: 'fileTransfer',
+                        fileName: fileName,
+                        from: username,
+                        to: recipient,
+                        timestamp: new Date().toISOString()
+                    }));
 
-                    displayFileLink('You', fileName, fileLink);
+                    displayMessage('You', `File sent: ${fileName}`);
                 })
-                .catch(error => {
-                    alert('Error uploading file: ' + error.message);
+                .catch(error =>
+                {
+                    console.error('Error uploading file:', error);
                 });
         }
     });
@@ -411,14 +495,16 @@ document.addEventListener("DOMContentLoaded", () => {
 
 
 
-function updateOnlineUsers(users = []) {
+function updateOnlineUsers(users = [])
+{
     const onlineUsersList = document.getElementById('online-users');
     const recipientDropdown = document.getElementById('recipient');
 
     onlineUsersList.innerHTML = '';
     recipientDropdown.innerHTML = '<option value="group">Group Chat</option>';
 
-    users.forEach(user => {
+    users.forEach(user =>
+    {
         // 检查 user 是否为有效的非空字符串
         if (user && user.trim() !== 'undefined') {
             const li = document.createElement('li');
@@ -433,7 +519,8 @@ function updateOnlineUsers(users = []) {
     });
 }
 
-function displayFileLink(from, fileName, fileLink) {
+function displayFileLink(from, fileName, fileLink)
+{
     const chatMessages = document.getElementById('chat-messages');
     const messageDiv = document.createElement('div');
 
@@ -452,7 +539,8 @@ function displayFileLink(from, fileName, fileLink) {
     chatMessages.appendChild(messageDiv);
 }
 
-async function verifySignature(data, counter, signature) {
+async function verifySignature(data, counter, signature)
+{
     const encoder = new TextEncoder();
     const messageToVerify = encoder.encode(JSON.stringify(data) + counter);
 
@@ -468,20 +556,4 @@ async function verifySignature(data, counter, signature) {
         signatureBytes,
         messageToVerify
     );
-}
-
-function requestClientList() {
-    ws.send(JSON.stringify({ type: 'client_list_request' }));
-}
-
-async function sendMessage(type, data) {
-    messageCounter++;  // Increment message counter
-    const signature = await signMessage(data, messageCounter);  // Sign message with counter
-
-    ws.send(JSON.stringify({
-        type: 'signed_data',
-        data: data,
-        counter: messageCounter,
-        signature: signature
-    }));
 }
