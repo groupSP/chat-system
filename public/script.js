@@ -327,21 +327,20 @@ document.addEventListener("DOMContentLoaded", () => {
     // initWebSocket(); // Initialize WebSocket connection
 
     // Handle sending messages
-    document.getElementById('login-btn').addEventListener('click', () =>
-        {
-            username = document.getElementById('username').value.trim();
-    
-            if (username) {
-                document.body.classList.add('logged-in'); // Add class to show online users
-                // if (!ws || ws.readyState !== WebSocket.OPEN) {
-                initWebSocket();
-                // }
-                document.getElementById('login-container').style.display = 'none';
-                generateAESKey();
-            } else {
-                alert('Please enter a valid username.');
-            }
-        });
+    document.getElementById('login-btn').addEventListener('click', () => {
+        username = document.getElementById('username').value.trim();
+
+        if (username) {
+            document.body.classList.add('logged-in'); // Add class to show online users
+            // if (!ws || ws.readyState !== WebSocket.OPEN) {
+            initWebSocket();
+            // }
+            document.getElementById('login-container').style.display = 'none';
+            generateAESKey();
+        } else {
+            alert('Please enter a valid username.');
+        }
+    });
     document.getElementById('send-message').addEventListener('click', async (event) => {
         event.preventDefault(); // Prevent default form submission
 
@@ -371,19 +370,52 @@ document.addEventListener("DOMContentLoaded", () => {
             document.getElementById('message').value = ''; // Clear the input field
         }
     });
+
+    document.getElementById('send-file').addEventListener('click', () => {
+        const fileInput = document.getElementById('file-input');
+        const file = fileInput.files[0];
+        const recipient = document.getElementById('recipient').value;
+
+        if (file) {
+            const formData = new FormData();
+            formData.append('file', file);
+
+            fetch('/upload', {
+                method: 'POST',
+                body: formData
+            })
+                .then(response => response.json())
+                .then(data => {
+                    const fileName = data.fileName;
+                    const fileLink = `http://${window.location.host}/files/${fileName}`;
+
+                        ws.send(JSON.stringify({
+                            type: 'fileTransfer',
+                            fileName: fileName,
+                            to: recipient,
+                            from: ws.username,
+                            fileLink: data.fileLink
+                        }));
+
+                    displayFileLink('You', fileName, fileLink);
+                })
+                .catch(error => {
+                    alert('Error uploading file: ' + error.message);
+                });
+        }
+    });
 });
 
 
-function updateOnlineUsers(users = [])
-{
+
+function updateOnlineUsers(users = []) {
     const onlineUsersList = document.getElementById('online-users');
     const recipientDropdown = document.getElementById('recipient');
 
     onlineUsersList.innerHTML = '';
     recipientDropdown.innerHTML = '<option value="group">Group Chat</option>';
 
-    users.forEach(user =>
-    {
+    users.forEach(user => {
         // 检查 user 是否为有效的非空字符串
         if (user && user.trim() !== 'undefined') {
             const li = document.createElement('li');
@@ -398,8 +430,7 @@ function updateOnlineUsers(users = [])
     });
 }
 
-function displayFileLink(from, fileName, fileLink)
-{
+function displayFileLink(from, fileName, fileLink) {
     const chatMessages = document.getElementById('chat-messages');
     const messageDiv = document.createElement('div');
 
