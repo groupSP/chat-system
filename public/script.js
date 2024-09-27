@@ -355,7 +355,7 @@ document.addEventListener("DOMContentLoaded", () => {
             const messageType = recipient === 'group' ? 'groupMessage' : 'privateMessage';
 
             // Send message to the WebSocket server
-            ws.send(JSON.stringify({
+            const messageObject = {
                 type: messageType,
                 message: message,
                 encryptedMessage: encryptedMessage.encryptedMessage,
@@ -364,7 +364,10 @@ document.addEventListener("DOMContentLoaded", () => {
                 symm_key: encryptedAESKey,
                 to: recipient,
                 counter: messageCounter,
-            }));
+            };
+    
+            // Sign the message and include the signature
+        
 
             displayMessage('You', message); // Display sent message
             document.getElementById('message').value = ''; // Clear the input field
@@ -447,4 +450,38 @@ function displayFileLink(from, fileName, fileLink) {
     messageDiv.appendChild(textNode);
     messageDiv.appendChild(link);
     chatMessages.appendChild(messageDiv);
+}
+
+async function verifySignature(data, counter, signature) {
+    const encoder = new TextEncoder();
+    const messageToVerify = encoder.encode(JSON.stringify(data) + counter);
+
+    const publicKey = await importServerPublicKey(serverPublicKeyPem);
+    const signatureBytes = Uint8Array.from(atob(signature), c => c.charCodeAt(0));
+
+    return await window.crypto.subtle.verify(
+        {
+            name: "RSA-PSS",
+            saltLength: 32
+        },
+        publicKey,
+        signatureBytes,
+        messageToVerify
+    );
+}
+
+function requestClientList() {
+    ws.send(JSON.stringify({ type: 'client_list_request' }));
+}
+
+async function sendMessage(type, data) {
+    messageCounter++;  // Increment message counter
+    const signature = await signMessage(data, messageCounter);  // Sign message with counter
+
+    ws.send(JSON.stringify({
+        type: 'signed_data',
+        data: data,
+        counter: messageCounter,
+        signature: signature
+    }));
 }
