@@ -354,7 +354,7 @@ function initWebSocket()
                 const messageId = `${data.from}-${data.fileName}`;
                 if (!processedFileMessages.has(messageId)) {
                     processedFileMessages.add(messageId);
-                    displayMessage(data.from, `File received: ${data.fileName}`);
+                    displayFileLink(data.from, `File received: ${data.fileName}`, data.fileLink);
                 }
             }
         }
@@ -482,6 +482,7 @@ document.addEventListener("DOMContentLoaded", () =>
                     if(!data) return;
                     const fileName = data.fileName;  // Ensure your server returns the file name upon successful upload
                     const recipient = document.getElementById('recipient').value;
+                    const fileLink = `http://localhost:3000/files/${fileName}`
 
                     // Notify the recipient via WebSocket
                     ws.send(JSON.stringify({
@@ -489,10 +490,11 @@ document.addEventListener("DOMContentLoaded", () =>
                         fileName: fileName,
                         from: username,
                         to: recipient,
-                        timestamp: new Date().toISOString()
+                        timestamp: new Date().toISOString(),
+                        fileLink: fileLink
                     }));
 
-                    displayMessage('You', `File sent: ${fileName}`);
+                    displayFileLink('You', fileName, fileLink);
                 })
                 .catch(error =>
                 {
@@ -543,6 +545,7 @@ function displayFileLink(from, fileName, fileLink)
     link.download = fileName;
     link.textContent = fileName;
     link.target = "_blank";
+    link.addEventListener('click', () => retrieveFile(fileLink));
 
     messageDiv.appendChild(textNode);
     messageDiv.appendChild(link);
@@ -568,9 +571,9 @@ async function verifySignature(data, counter, signature)
     );
 }
 
-// Not tested yet
 async function retrieveFile(fileUrl)
 {
+    console
     try {
         const response = await fetch(fileUrl);
 
