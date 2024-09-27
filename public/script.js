@@ -168,7 +168,7 @@ function displayMessage(from, message) {
 
     const chatMessages = document.getElementById('chat-messages');
     const messageDiv = document.createElement('div');
-    
+
     const checkbox = document.createElement('input');
     checkbox.type = 'checkbox';
     checkbox.onclick = () => selectMessage(message, checkbox);
@@ -185,32 +185,39 @@ function displayMessage(from, message) {
 
 // Initialize WebSocket connection
 function initWebSocket() {
+    if (ws && ws.readyState === WebSocket.OPEN) {
+        console.log("WebSocket already connected.");
+        return;
+    }
+
     ws = new WebSocket(`ws://${window.location.host}`);
 
     ws.onopen = () => {
+        console.log("WebSocket connection opened.");
         ws.send(JSON.stringify({
             type: 'hello',
             public_key: serverPublicKeyPem,
-            name: username
+            name: username,
+            from:username
         }));
     };
 
-// 计算公钥的SHA-256指纹
-async function computeFingerprint(publicKeyPem) {
-    const keyBuffer = pemToArrayBuffer(publicKeyPem);
-    const hash = await window.crypto.subtle.digest('SHA-256', keyBuffer);
-    return btoa(String.fromCharCode.apply(null, new Uint8Array(hash)));
-}
+    // 计算公钥的SHA-256指纹
+    async function computeFingerprint(publicKeyPem) {
+        const keyBuffer = pemToArrayBuffer(publicKeyPem);
+        const hash = await window.crypto.subtle.digest('SHA-256', keyBuffer);
+        return btoa(String.fromCharCode.apply(null, new Uint8Array(hash)));
+    }
 
 
     // Forward button opens the modal to choose the recipient
     document.getElementById('forward-file').addEventListener('click', () => {
         const modal = document.getElementById('forward-modal');
         const forwardList = document.getElementById('forward-user-list');
-    
+
         // Clear the previous user list
         forwardList.innerHTML = '';
-    
+
         // Populate the online user list, excluding the current user and ignoring undefined or empty users
         onlineUsers.forEach(user => {
             if (user !== username && user && user.trim() !== 'undefined') {
@@ -220,77 +227,86 @@ async function computeFingerprint(publicKeyPem) {
                 forwardList.appendChild(option);
             }
         });
-    
+
         // Show the modal to select the user for forwarding
         modal.style.display = 'block';
     });
-    
 
-// Forwarding the selected message to the chosen user
-document.getElementById('forward-btn').addEventListener('click', () => {
-    const selectedUser = document.getElementById('forward-user-list').value;
 
-    selectedMessages.forEach(message => {
-        // Forwarding the message to the selected user
-        ws.send(JSON.stringify({
-            type: 'forwardMessage',
-            data: {
-                originalMessage: message,
-                forwardTo: selectedUser
-            }
-        }));
+    // Forwarding the selected message to the chosen user
+    document.getElementById('forward-btn').addEventListener('click', () => {
+        const selectedUser = document.getElementById('forward-user-list').value;
 
-        // Display the message in the chatbox as a forwarded message
-        displayMessage('You (Forwarded)', message);
+        selectedMessages.forEach(message => {
+            // Forwarding the message to the selected user
+            ws.send(JSON.stringify({
+                type: 'forwardMessage',
+                data: {
+                    originalMessage: message,
+                    forwardTo: selectedUser
+                }
+            }));
+
+            // Display the message in the chatbox as a forwarded message
+            displayMessage('You (Forwarded)', message);
+        });
+
+        // Hide the modal after forwarding
+        document.getElementById('forward-modal').style.display = 'none';
+        selectedMessages = []; // Clear selected messages
     });
 
-    // Hide the modal after forwarding
-    document.getElementById('forward-modal').style.display = 'none';
-    selectedMessages = []; // Clear selected messages
-});
+    // Cancel the forward action and hide the modal
+    document.getElementById('cancel-forward-btn').addEventListener('click', () => {
+        document.getElementById('forward-modal').style.display = 'none';
+        selectedMessages = []; // Clear selected messages
+    });
 
-// Cancel the forward action and hide the modal
-document.getElementById('cancel-forward-btn').addEventListener('click', () => {
-    document.getElementById('forward-modal').style.display = 'none';
-    selectedMessages = []; // Clear selected messages
-});
+    let processedFileMessages = new Set(); // Store processed file messages
 
-let processedFileMessages = new Set();
     ws.onmessage = (event) => {
         const data = JSON.parse(event.data);
+        console.log("Received WebSocket message:", data);
 
         if (data.type === 'publicKey') {
-            serverPublicKeyPem = data.key; // 设置公钥
-        };
+            serverPublicKeyPem = data.key; // Set the public key
+        }
 
-        // Update onlineUsers when the server sends the online users list
+        // Update the list of online users
         if (data.type === 'onlineUsers') {
             onlineUsers = data.users; // Store the updated list of users
             updateOnlineUsers(onlineUsers);
-        } 
-        
+        }
+
+        // Handle private or group messages
         if (data.type === 'privateMessage' || data.type === 'groupMessage') {
-            // displayMessage(data.from, data.message);
             if (data.from !== username) {
-                displayMessage(data.from, data.message); // 其他用户的消息
+                displayMessage(data.from, data.message); // Show messages from others
             }
         }
 
+        // Handle file transfer messages
         if (data.type === 'fileTransfer') {
-            // 生成文件消息的唯一标识符，例如根据发送者和文件名
-            const fileMessageId = `${data.from}-${data.fileName}`;
-    
-            // 检查文件消息是否已经处理过，避免重复显示
-            if (!processedFileMessages.has(fileMessageId)) {
-                processedFileMessages.add(fileMessageId); // 标记为已处理
-    
-                // 只有当消息不是由自己发送时，才显示文件
-                if (data.from !== username) {
-                    displayFileLink(data.from, data.fileName, data.fileLink); // 显示文件
+            // Make sure the fileName and from fields exist in the received data
+            if (data.fileName && data.from) {
+                // Declare fileMessageId to avoid reference errors
+                const fileMessageId = `${data.from}-${data.fileName}`;
+
+                // Check if the file message has already been processed
+                if (!processedFileMessages.has(fileMessageId)) {
+                    processedFileMessages.add(fileMessageId); // Mark the message as processed
+
+                    // Only display the file if it wasn't sent by the current user
+                    if (data.from !== username) {
+                        displayFileLink(data.from, data.fileName, data.fileLink); // Display the file link
+                    }
+                } else {
+                    console.log(`Duplicate file message ignored: ${fileMessageId}`);
                 }
+            } else {
+                console.error(`Missing fileName or from in the fileTransfer message\ndata.fileName = ${data.fileName}\ndata.form = ${data.from}`);
             }
-        }else{console.log(`Duplicate file message ignored: ${fileMessageId}`);
-    }
+        }
     };
 
     ws.onerror = (error) => {
@@ -310,20 +326,22 @@ document.addEventListener("DOMContentLoaded", () => {
             // 初始化 WebSocket 连接
             initWebSocket();
         });
-    
-        document.getElementById('login-btn').addEventListener('click', () => {
+
+    document.getElementById('login-btn').addEventListener('click', () => {
         username = document.getElementById('username').value.trim();
 
         if (username) {
             document.body.classList.add('logged-in'); // Add class to show online users
+            if (!ws || ws.readyState !== WebSocket.OPEN) {
             initWebSocket();
+            }
             document.getElementById('login-container').style.display = 'none';
             generateAESKey();
         } else {
             alert('Please enter a valid username.');
         }
     });
-        
+
 
     // 绑定发送消息的点击事件
     document.getElementById('send-message').addEventListener('click', async () => {
@@ -367,22 +385,23 @@ document.addEventListener("DOMContentLoaded", () => {
                 method: 'POST',
                 body: formData
             })
-            .then(response => response.json())
-            .then(data => {
-                const fileName = data.fileName;
-                const fileLink = `http://${window.location.host}/files/${fileName}`;
+                .then(response => response.json())
+                .then(data => {
+                    const fileName = data.fileName;
+                    const fileLink = `http://${window.location.host}/files/${fileName}`;
 
-                ws.send(JSON.stringify({
-                    type: 'fileTransfer',
-                    fileName: fileName,
-                    to: recipient
-                }));
+                    ws.send(JSON.stringify({
+                        type: 'fileTransfer',
+                        fileName: fileName,
+                        to: recipient,
+                        from: username
+                    }));
 
-                displayFileLink('You', fileName, fileLink);
-            })
-            .catch(error => {
-                alert('Error uploading file: ' + error.message);
-            });
+                    displayFileLink('You', fileName, fileLink);
+                })
+                .catch(error => {
+                    alert('Error uploading file: ' + error.message);
+                });
         }
     });
 });
@@ -390,7 +409,7 @@ document.addEventListener("DOMContentLoaded", () => {
 function updateOnlineUsers(users = []) {
     const onlineUsersList = document.getElementById('online-users');
     const recipientDropdown = document.getElementById('recipient');
-    
+
     onlineUsersList.innerHTML = '';
     recipientDropdown.innerHTML = '<option value="group">Group Chat</option>';
 
@@ -422,7 +441,7 @@ function displayFileLink(from, fileName, fileLink) {
     link.download = fileName;
     link.textContent = fileName;
     link.target = "_blank";
-    
+
     messageDiv.appendChild(textNode);
     messageDiv.appendChild(link);
     chatMessages.appendChild(messageDiv);
