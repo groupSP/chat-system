@@ -65,7 +65,8 @@ async function fetchPublicKey()
         if (!serverPublicKeyPem) {
             console.error('Public key is undefined or empty');
         } else {
-            initWebSocket(); // 在成功获取公钥后初始化 WebSocket
+            if (!ws || ws.readyState !== WebSocket.OPEN)
+                initWebSocket(); // 在成功获取公钥后初始化 WebSocket
         }
     } catch (error) {
         console.error('Error fetching public key:', error);
@@ -197,7 +198,7 @@ function displayMessage(from, message)
     messageDiv.appendChild(messageContent);
     chatMessages.appendChild(messageDiv);
 }
- 
+
 
 // Initialize WebSocket connection
 function initWebSocket()
@@ -341,7 +342,7 @@ function initWebSocket()
 
     ws.onclose = () =>
     {
-        setTimeout(initWebSocket, 2000);
+        // setTimeout(initWebSocket, 2000);
     };
 }
 
@@ -353,7 +354,8 @@ document.addEventListener("DOMContentLoaded", () =>
         {
             serverPublicKeyPem = data.key; // 设置公钥
             // 初始化 WebSocket 连接
-            initWebSocket();
+            if (!ws || ws.readyState !== WebSocket.OPEN)
+                initWebSocket();
         });
 
     document.getElementById('login-btn').addEventListener('click', () =>
