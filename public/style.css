@@ -50,6 +50,10 @@ ul li:hover {
 
 /* Chatbox Styling */
 .chatbox {
+    display: none;
+}
+
+.logged-in .chatbox {
     flex: 1;
     display: flex;
     flex-direction: column;
@@ -175,3 +179,13 @@ button:hover {
 #chat-messages::-webkit-scrollbar-thumb:hover {
     background-color: #95a5a6;
 }
+
+#online-users {
+    display: none;
+}
+
+/* After login */
+.logged-in #online-users {
+    display: block;
+}
+
