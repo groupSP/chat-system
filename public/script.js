@@ -257,6 +257,12 @@ function initWebSocket()
             name: username,
             from: username
         }));
+
+        // server hello
+        ws.send(JSON.stringify({
+            type: 'server_hello',
+            sender: window.location.host // Server IP or host
+        }));
     };
 
     async function computeFingerprint(publicKeyPem)

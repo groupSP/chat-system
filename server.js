@@ -72,8 +72,18 @@ wss.on('connection', (ws) => {
   ws.send(JSON.stringify({ type: 'publicKey', key: serverPublicKey }));
   let userName = '';
 
+  // server hello
+  ws.send(JSON.stringify({
+    type: 'server_hello',
+    sender: server.address().address
+  }));
+
   ws.on('message', (message) => {
     const data = JSON.parse(message);
+
+    if (data.type === 'server_hello') {
+      console.log(`Received server_hello from: ${data.sender}`);
+    }
 
     if (data.type === 'hello') {
       userName = data.name;
