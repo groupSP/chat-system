@@ -177,6 +177,33 @@ async function exportAndEncryptAESKey()
     return btoa(String.fromCharCode.apply(null, new Uint8Array(encryptedAESKey)));
 }
 
+async function sendSignedMessage(data) {
+    messageCounter++; // Increment the message counter
+    const jData = JSON.stringify(data);
+
+    const messageToSign = {
+        data: jData,
+        counter: messageCounter
+    };
+
+    // Sign the message (data + counter) using the private key
+    const signature = await signMessage(messageToSign, messageCounter);
+
+    const signedMessage = {
+        type: "signed_data",
+        data: jData,
+        counter: messageCounter,
+        signature: btoa(String.fromCharCode(...new Uint8Array(signature))) // Convert signature to Base64
+    };
+
+    // Send the signed message via WebSocket
+    if (ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify(signedMessage));
+    } else {
+        console.error('WebSocket is not open. Message not sent.');
+    }
+}
+
 // Forward message functionality
 document.getElementById('forward-btn').addEventListener('click', () =>
 {
@@ -358,9 +385,10 @@ function initWebSocket()
             if (data.fileName && data.from) {
                 // Ensure the message is unique before displaying
                 const messageId = `${data.from}-${data.fileName}`;
-                if (!processedFileMessages.has(messageId)) {
+                // if (!processedFileMessages.has(messageId)) {
+                if (data.from !== username) {
                     processedFileMessages.add(messageId);
-                    displayFileLink(data.from, `File received: ${data.fileName}`, data.fileLink);
+                    displayFileLink(data.from, `${data.fileName}`, data.fileLink);
                 }
             }
         }
@@ -431,27 +459,41 @@ document.addEventListener("DOMContentLoaded", () =>
             const encryptedAESKey = await exportAndEncryptAESKey();
             messageCounter++;
 
-            const messageType = recipient === 'group' ? 'groupMessage' : 'privateMessage';
+            // const messageType = recipient === 'group' ? 'groupMessage' : 'privateMessage';
 
-            // Send message to the WebSocket server
-            const messageObject = {
-                type: messageType,
+            // // Send message to the WebSocket server
+            // const messageObject = {
+            //     type: messageType,
+            //     message: message,
+            //     encryptedMessage: encryptedMessage.encryptedMessage,
+            //     authTag: encryptedMessage.authTag,
+            //     iv: encryptedMessage.iv,
+            //     symm_key: encryptedAESKey,
+            //     to: recipient,
+            //     counter: messageCounter,
+            // };
+
+            const messageData = {
+                type: recipient === 'group' ? 'groupMessage' : 'privateMessage',
                 message: message,
-                encryptedMessage: encryptedMessage.encryptedMessage,
-                authTag: encryptedMessage.authTag,
-                iv: encryptedMessage.iv,
-                symm_key: encryptedAESKey,
                 to: recipient,
-                counter: messageCounter,
+                counter: messageCounter // Example of including the counter
             };
 
             // Sign the message and include the signature
-            const signature = await signMessage(messageObject, messageCounter);
-            messageObject.signature = signature;
+            const signature = await signMessage(messageData, messageCounter);
+            messageData.signature = signature;
+
+            const signedMessage = {
+                type: "signed_data",
+                data: messageData,
+                counter: messageCounter,
+                signature: messageData.signature
+            };
 
             // Send the message through WebSocket
             if (ws.readyState === WebSocket.OPEN) {
-                ws.send(JSON.stringify(messageObject));
+                ws.send(JSON.stringify(messageData));
             } else {
                 console.error('WebSocket is not open. Message not sent.');
             }
