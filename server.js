@@ -101,12 +101,12 @@ wss.on('connection', (ws) => {
       return; // Reject the message
     }
 
-    // Verify the signature
-    const isValid = await verifySignature(signedData, counter, signature, clients[sender].publicKey);
-    if (!isValid) {
-      console.error('Invalid signature! Rejecting message.');
-      return; // Reject the message
-    }
+    // // Verify the signature
+    // const isValid = await verifySignature(signedData, counter, signature, clients[sender].publicKey);
+    // if (!isValid) {
+    //   console.error('Invalid signature! Rejecting message.');
+    //   return; // Reject the message
+    // }
 
     // Update the last known counter
     messageCounters[sender] = counter;
