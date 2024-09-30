@@ -431,11 +431,22 @@ document.addEventListener("DOMContentLoaded", () =>
     // initWebSocket(); // Initialize WebSocket connection
 
     // Handle sending messages
+
+    document.getElementById('username').addEventListener('keydown', async (event) =>
+    {
+        if (event.key === 'Enter') {
+            event.preventDefault();
+            document.getElementById('login-btn').click();
+        }
+    });
+
+    // Handle sending messages
     document.getElementById('login-btn').addEventListener('click', () =>
     {
         username = document.getElementById('username').value.trim();
 
         if (username) {
+            console.log("now initializing websocket");
             document.body.classList.add('logged-in'); // Add class to show online users
             // if (!ws || ws.readyState !== WebSocket.OPEN) {
             initWebSocket();
@@ -444,6 +455,14 @@ document.addEventListener("DOMContentLoaded", () =>
             generateAESKey();
         } else {
             alert('Please enter a valid username.');
+        }
+    });
+
+    document.getElementById('message').addEventListener('keydown', async (event) =>
+    {
+        if (event.key === 'Enter') {
+            event.preventDefault();
+            document.getElementById('send-message').click();
         }
     });
 
