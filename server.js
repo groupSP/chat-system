@@ -78,7 +78,7 @@ wss.on('connection', (ws) => {
     sender: server.address().address
   }));
 
-  ws.on('message', (message) => {
+  ws.on('message', async (message) => {
     const data = JSON.parse(message);
 
     if (data.type === 'server_hello') {
@@ -91,6 +91,27 @@ wss.on('connection', (ws) => {
       messageCounters[userName] = 0;
       broadcastOnlineUsers();
     }
+
+    if (data.type === 'signed_data') {
+      const sender = userName;
+      const { data: signedData, counter, signature } = data;
+        // Check if the counter is greater than the last known counter
+    if (messageCounters[sender] >= counter) {
+      console.error('Replay attack detected! Counter is not greater than the last value.');
+      return; // Reject the message
+    }
+
+    // Verify the signature
+    const isValid = await verifySignature(signedData, counter, signature, clients[sender].publicKey);
+    if (!isValid) {
+      console.error('Invalid signature! Rejecting message.');
+      return; // Reject the message
+    }
+
+    // Update the last known counter
+    messageCounters[sender] = counter;
+
+      }
 
     // Handle forwarding messages (for text only)
     if (data.type === 'forwardMessage') {
