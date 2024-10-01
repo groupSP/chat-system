@@ -18,6 +18,7 @@ const wss = new WebSocket.Server({ server });
 
 // Public key
 const publicKeyPath = path.join(__dirname, 'public', 'public.pem');
+// const publicKeyPath = path.join('public', 'public.pem');
 const serverPublicKey = fs.readFileSync(publicKeyPath, 'utf8');
 
 // Set up multer for file uploads
@@ -25,10 +26,13 @@ const upload = multer({ dest: 'uploads/' }); // Files will be stored in the "upl
 
 // Store online users
 let clients = {};
+let onlineUsers = new Set();
 let messageCounters = {};
+let PORT = process.env.PORT || 3000;
 
 // RSA Decrypt AES Key Function
-function decryptAESKey(encryptedKey) {
+function decryptAESKey(encryptedKey)
+{
   try {
     const decrypted = crypto.privateDecrypt(
       {
@@ -45,8 +49,51 @@ function decryptAESKey(encryptedKey) {
   }
 }
 
+// AES Encryption
+function encryptWithAES(data, aesKey, iv)
+{
+  const cipher = crypto.createCipheriv('aes-256-cbc', aesKey, iv);
+  let encrypted = cipher.update(data, 'utf8', 'base64');
+  encrypted += cipher.final('base64');
+  return encrypted;
+}
+
+// AES Decryption
+function decryptWithAES(encryptedData, aesKey, iv)
+{
+  const decipher = crypto.createDecipheriv('aes-256-cbc', aesKey, iv);
+  let decrypted = decipher.update(encryptedData, 'base64', 'utf8');
+  decrypted += decipher.final('utf8');
+  return decrypted;
+}
+
+// Generate random AES key and IV
+function generateAESKey()
+{
+  return crypto.randomBytes(32); // AES-256 key size
+}
+
+function generateIV()
+{
+  return crypto.randomBytes(16); // AES IV size
+}
+
+// Encrypt AES key with RSA public key
+function encryptAESKeyWithRSA(aesKey, recipientPublicKey)
+{
+  return crypto.publicEncrypt(
+    {
+      key: recipientPublicKey,
+      padding: crypto.constants.RSA_PKCS1_OAEP_PADDING,
+      oaepHash: 'sha256',
+    },
+    aesKey
+  ).toString('base64');
+}
+
 // Broadcast the online user list
-function broadcastOnlineUsers() {
+function broadcastOnlineUsers()
+{
   const onlineUsers = Object.keys(clients);
   broadcast({
     type: 'onlineUsers',
@@ -54,78 +101,98 @@ function broadcastOnlineUsers() {
   });
 }
 
-// Broadcast message to all or a specific client
-function broadcast(message, recipient = null) {
-  if (recipient && clients[recipient]) {
-    clients[recipient].send(JSON.stringify(message));
-  } else {
-    wss.clients.forEach(client => {
-      if (client.readyState === WebSocket.OPEN) {
-        client.send(JSON.stringify(message));
-      }
-    });
-  }
+// Broadcast message to all clients in the specified format
+function broadcast(message, sender = null)
+{
+  console.log("---Broadcast start---");
+  const aesKey = generateAESKey();
+  const iv = generateIV();
+
+  const encryptedMessage = encryptWithAES(JSON.stringify(message), aesKey, iv);
+
+  wss.clients.forEach(client =>
+  {
+    if (client.readyState === WebSocket.OPEN) {
+      const recipientPublicKey = fs.readFileSync(path.join(__dirname, 'public', `public.pem`), 'utf8');
+      const encryptedAESKey = encryptAESKeyWithRSA(aesKey, recipientPublicKey);
+      const broadcastData = {
+        type: 'chat',
+        destination_servers: [client.server], // Assume you have server info
+        iv: iv.toString('base64'), // Base64 encoded IV
+        symm_keys: [encryptedAESKey], // AES key encrypted with the recipient's public RSA key
+        chat: encryptedMessage // Base64 encoded AES encrypted message
+      };
+
+      console.log(`Sending message to ${client.username}:\n`, broadcastData);
+      client.send(JSON.stringify(broadcastData));
+    }
+  });
+  console.log("---Broadcast end---");
 }
 
 // Handle WebSocket connections
-wss.on('connection', (ws) => {
+wss.on('connection', (ws) =>
+{
+  onlineUsers.add(ws);
+  const users = Array.from(onlineUsers);
+  const message = JSON.stringify({ type: 'onlineUsers', users });
+  onlineUsers.forEach((user) => user.send(message));
+
   ws.send(JSON.stringify({ type: 'publicKey', key: serverPublicKey }));
   let userName = '';
 
-  // server hello
+  // Server hello
   ws.send(JSON.stringify({
     type: 'server_hello',
     sender: server.address().address
   }));
 
-  ws.on('message', async (message) => {
+  ws.on('message', async (message) =>
+  {
     const data = JSON.parse(message);
 
     if (data.type === 'server_hello') {
-      console.log(`Received server_hello from: ${data.sender}`);
+      console.log(`Received server_hello from: ${data.sender} | user: ${data.username}`);
     }
 
-    if (data.type === 'hello') {
+    else if (data.type === 'hello') {
       userName = data.name;
       clients[userName] = ws;
+      ws.username = userName;  // Store username in ws object
       messageCounters[userName] = 0;
       broadcastOnlineUsers();
     }
 
-    if (data.type === 'signed_data') {
+    else if (data.type === 'signed_data') {
       const sender = userName;
       const { data: signedData, counter, signature } = data;
-        // Check if the counter is greater than the last known counter
-    if (messageCounters[sender] >= counter) {
-      console.error('Replay attack detected! Counter is not greater than the last value.');
-      return; // Reject the message
-    }
-
-    // // Verify the signature
-    // const isValid = await verifySignature(signedData, counter, signature, clients[sender].publicKey);
-    // if (!isValid) {
-    //   console.error('Invalid signature! Rejecting message.');
-    //   return; // Reject the message
-    // }
-
-    // Update the last known counter
-    messageCounters[sender] = counter;
-
+      // Check if the counter is greater than the last known counter
+      if (messageCounters[sender] >= counter) {
+        console.error('Replay attack detected! Counter is not greater than the last value.');
+        return; // Reject the message
       }
 
+      // Update the last known counter
+      messageCounters[sender] = counter;
+    }
+
     // Handle forwarding messages (for text only)
-    if (data.type === 'forwardMessage') {
+    else if (data.type === 'forwardMessage') {
       const originalMessage = data.data.originalMessage;
       const forwardTo = data.data.forwardTo;
 
       if (clients[forwardTo]) {
-          clients[forwardTo].send(JSON.stringify({
-              type: 'privateMessage',
-              from: `${userName} (Forwarded)`,
-              message: originalMessage,
-          }));
+        clients[forwardTo].send(JSON.stringify({
+          type: 'privateMessage',
+          from: `${userName} (Forwarded)`,
+          message: originalMessage,
+        }));
       }
-  }
+    }
+
+    else if (data.type === 'onlineUsers') {
+      ws.send(JSON.stringify({ type: 'onlineUsers', users: Array.from(onlineUsers) }));
+    }
 
     if (data.counter && data.counter > messageCounters[userName]) {
       messageCounters[userName] = data.counter;
@@ -169,23 +236,76 @@ wss.on('connection', (ws) => {
     }
   });
 
-  ws.on('close', () => {
+  ws.on('close', () =>
+  {
     delete clients[userName];
     broadcastOnlineUsers();
   });
 });
 
-app.get('/public-key', (req, res) => {
+function sendToServer(destinationServer, message)
+{
+  // Encrypt the message
+  const iv = crypto.randomBytes(16); // AES IV
+  const aesKey = crypto.randomBytes(32); // AES key
+
+  const cipher = crypto.createCipheriv('aes-256-cbc', aesKey, iv);
+  let encryptedMessage = cipher.update(message, 'utf8', 'base64');
+  encryptedMessage += cipher.final('base64');
+
+  // Encrypt AES key with server's public RSA key
+  const serverPublicKey = fs.readFileSync(`./keys/${destinationServer}-public.pem`, 'utf8');
+  const encryptedAESKey = crypto.publicEncrypt(
+    {
+      key: serverPublicKey,
+      padding: crypto.constants.RSA_PKCS1_OAEP_PADDING,
+      oaepHash: 'sha256',
+    },
+    aesKey
+  );
+
+  // Create the data payload
+  const data = {
+    type: 'chat',
+    destination_servers: [destinationServer], // Send to the correct server
+    iv: iv.toString('base64'),
+    symm_keys: [encryptedAESKey.toString('base64')],
+    chat: encryptedMessage
+  };
+
+  // Send the data to the destination server
+  sendTo(destinationServer, data);
+}
+
+function sendTo(destinationServer, data)
+{
+  // Example WebSocket sending logic for server-to-server communication
+  // Here, make sure the connection to the other server is established
+  if (servers[destinationServer]) {
+    servers[destinationServer].send(JSON.stringify(data));
+  } else {
+    console.log(`Server ${destinationServer} is not connected.`);
+  }
+}
+
+// app.get('/', (req, res) =>
+// {
+//   res.send('Server is running!');
+// });
+
+app.get('/public-key', (req, res) =>
+{
   res.json({ key: serverPublicKey });
 });
 
 // Serve uploaded files with forced download
-app.get('/files/:filename', (req, res) => {
-  res.send({ key: serverPublicKey });
+app.get('/files/:filename', (req, res) =>
+{
   const fileName = req.params.filename;
   const filePath = path.join(__dirname, 'uploads', fileName);
 
-  res.download(filePath, (err) => {
+  res.download(filePath, (err) =>
+  {
     if (err) {
       res.status(404).send('File not found.');
     }
@@ -196,7 +316,8 @@ app.get('/files/:filename', (req, res) => {
 app.use(express.static(path.join(__dirname, 'public')));
 
 // File upload endpoint
-app.post('/upload', upload.single('file'), (req, res) => {
+app.post('/upload', upload.single('file'), (req, res) =>
+{
   if (!req.file) {
     return res.status(400).send('No file uploaded.');
   }
@@ -204,7 +325,46 @@ app.post('/upload', upload.single('file'), (req, res) => {
   res.send({ fileName });
 });
 
-const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => {
-  console.log(`Server started on port ${PORT}`);
+// const startServer = (port) =>
+// {
+//   return new Promise((resolve, reject) =>
+//   {
+//     const tempServer = app.listen(port, () =>
+//     {
+//       console.log(`Server started on port ${port}`);
+//       resolve(tempServer);
+//     });
+
+//     tempServer.on('error', (err) =>
+//     {
+//       if (err.code === 'EADDRINUSE') {
+//         console.log(`Port ${port} is in use, trying port ${port + 1}...`);
+//         reject(port + 1);
+//       } else {
+//         console.error('Server error:', err);
+//         reject(err);
+//       }
+//     });
+//   });
+// };
+
+// const runServer = async () =>
+// {
+//   let serverInstance;
+//   while (true) {
+//     try {
+//       serverInstance = await startServer(PORT);
+//       break;
+//     } catch (nextPort) {
+//       PORT = nextPort;
+//     }
+//   }
+// };
+
+// runServer();
+
+// PORT = 3001;
+server.listen(PORT, () =>
+{
+  console.log(`> Server started on port ${PORT}`);
 });

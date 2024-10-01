@@ -5,6 +5,9 @@ let iv; // Initialization vector (IV)
 let messageCounter = 0; // Message counter
 let selectedMessages = []; // Stores selected messages
 let onlineUsers = []; // Stores online users
+let processedMessages = [];
+let processedFileMessages = [];
+let retryAttempts = 0;
 
 // Server's RSA Public Key (replace with actual PEM key)
 let serverPublicKeyPem = ''; // public key
@@ -162,6 +165,14 @@ function encryptMessage(message)
     });
 }
 
+function decryptWithAES(encryptedData, aesKey, iv)
+{
+    const decipher = crypto.createDecipheriv('aes-256-cbc', aesKey, iv);
+    let decrypted = decipher.update(encryptedData, 'base64', 'utf8');
+    decrypted += decipher.final('utf8');
+    return decrypted;
+}
+
 async function exportAndEncryptAESKey()
 {
     const rawAESKey = await window.crypto.subtle.exportKey('raw', aesKey);
@@ -236,18 +247,16 @@ function selectMessage(message, checkbox)
     }
 }
 
-let processedMessages = new Set(); // 存储已经处理的消息ID
-
 function displayMessage(from, message)
 {
     // 为消息生成一个唯一标识符，例如使用消息内容和发送者
     const messageId = `${from}-${message}`;
 
-    if (processedMessages.has(messageId)) {
-        return; // 如果消息已处理，则不重复显示
-    }
+    // if (processedMessages.has(messageId)) {
+    //     return; // 如果消息已处理，则不重复显示
+    // }
 
-    processedMessages.add(messageId); // 将消息标记为已处理
+    processedMessages.push(messageId); // 将消息标记为已处理
 
     const chatMessages = document.getElementById('chat-messages');
     const messageDiv = document.createElement('div');
@@ -272,11 +281,16 @@ function initWebSocket()
         console.log("WebSocket already connected.");
         ws.close();
     }
+    else if (retryAttempts > 1) {
+        console.log("Retry attempts:", retryAttempts);
+    }
 
     ws = new WebSocket(`ws://${window.location.host}`);
 
     ws.onopen = () =>
     {
+        retryAttempts = 0;
+        
         console.log("WebSocket connection opened.");
         ws.send(JSON.stringify({
             type: 'hello',
@@ -288,7 +302,8 @@ function initWebSocket()
         // server hello
         ws.send(JSON.stringify({
             type: 'server_hello',
-            sender: window.location.host // Server IP or host
+            sender: window.location.host, // Server IP or host
+            username
         }));
     };
 
@@ -355,8 +370,6 @@ function initWebSocket()
         selectedMessages = []; // Clear selected messages
     });
 
-    let processedFileMessages = new Set(); // Store processed file messages
-
     ws.onmessage = (event) =>
     {
         const data = JSON.parse(event.data);
@@ -367,38 +380,46 @@ function initWebSocket()
         }
 
         // Update the list of online users
-        if (data.type === 'onlineUsers') {
-            onlineUsers = data.users; // Store the updated list of users
+        else if (data.type === 'onlineUsers') {
+            onlineUsers = data.users.map(u=>u.username || "<undefined username>"); // Store the updated list of users
+            console.log("Online users:", onlineUsers);
             updateOnlineUsers(onlineUsers);
         }
 
         // Handle private or group messages
-        if (data.type === 'privateMessage' || data.type === 'groupMessage') {
+        else if (data.type === 'privateMessage' || data.type === 'groupMessage') {
             if (data.from !== username) {
                 displayMessage(data.from, data.message); // Show messages from others
             }
         }
 
         // Handle file transfer messages
-        if (data.type === 'fileTransfer') {
+        else if (data.type === 'fileTransfer') {
             // Make sure the fileName and from fields exist in the message
             if (data.fileName && data.from) {
                 // Ensure the message is unique before displaying
                 const messageId = `${data.from}-${data.fileName}`;
                 // if (!processedFileMessages.has(messageId)) {
                 if (data.from !== username) {
-                    processedFileMessages.add(messageId);
+                    processedFileMessages.push(messageId);
+                    console.log("Received file with id: ", messageId);
                     displayFileLink(data.from, `${data.fileName}`, data.fileLink);
                 }
             }
         }
 
-        // Handle any other types of messages you may have
+        else if (data.type === 'chat') {
+            const decryptedMessage = decryptWithAES(data.chat, data.symm_keys[0], Buffer.from(data.iv, 'base64'));
+            console.log('Received chat message:', decryptedMessage);
+
+            updateUsers(decryptedMessage);
+        }
     };
 
     ws.onclose = () =>
     {
-        console.log("WebSocket connection closed.");
+        console.log("WebSocket connection closed");
+        retryAttempts++;
         setTimeout(initWebSocket, 2000); // Try to reconnect every 2 seconds
     };
 
@@ -406,20 +427,6 @@ function initWebSocket()
     {
         console.error("WebSocket error:", error);
     };
-}
-
-// Update the online user list in the UI
-function updateOnlineUsers(users)
-{
-    const userListElement = document.getElementById('user-list');
-    userListElement.innerHTML = ''; // Clear the current list
-
-    users.forEach(user =>
-    {
-        const li = document.createElement('li');
-        li.textContent = user;
-        userListElement.appendChild(li);
-    });
 }
 
 // Start the chat application
@@ -549,7 +556,7 @@ document.addEventListener("DOMContentLoaded", () =>
                     if(!data) return;
                     const fileName = data.fileName;  // Ensure your server returns the file name upon successful upload
                     const recipient = document.getElementById('recipient').value;
-                    const fileLink = `http://localhost:3000/files/${fileName}`
+                    const fileLink = `http://${window.location.host}/files/${fileName}`
 
                     // Notify the recipient via WebSocket
                     ws.send(JSON.stringify({
@@ -571,8 +578,6 @@ document.addEventListener("DOMContentLoaded", () =>
         }
     });
 });
-
-
 
 function updateOnlineUsers(users = [])
 {
