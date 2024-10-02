@@ -1,13 +1,10 @@
-import * as CryptoJS from 'crypto-js';
-
 let ws;
 let username;
 let aesKey; // AES key
 let iv; // Initialization vector (IV)
 let messageCounter = 0; // Message counter
 let selectedMessages = []; // Stores selected messages
-let onlineUsers = []; // Stores online users
-let processedMessages = [];
+let onlineUsers = {}; // Stores online users
 let processedFileMessages = [];
 let retryAttempts = 0;
 
@@ -15,69 +12,9 @@ let retryAttempts = 0;
 let serverPublicKeyPem = ''; // public key
 let privateKey;
 let publicKey;
-let publicKeyPEM;
 
-// async function loadPrivateKey()
-// {
-//     const storedPrivateKey = window.localStorage.getItem('privateKey');
-//     if (storedPrivateKey) {
-//         privateKey = await crypto.subtle.importKey(
-//             'jwk',
-//             JSON.parse(storedPrivateKey),
-//             { name: 'RSA-PSS', hash: { name: 'SHA-256' } },
-//             true,
-//             ['sign']
-//         );
-//     }
-// }
-// loadPrivateKey();
-
-// async function generateKeys()
-// {
-//     const keyPair = await crypto.subtle.generateKey(
-//         {
-//             name: 'RSA-PSS',
-//             modulusLength: 2048,
-//             publicExponent: new Uint8Array([1, 0, 1]),
-//             hash: 'SHA-256',
-//         },
-//         true,
-//         ['sign', 'verify']
-//     );
-//     privateKey = keyPair.privateKey;
-//     const publicKey = keyPair.publicKey;
-
-//     // Optionally store the keys
-//     const exportedPrivateKey = await crypto.subtle.exportKey('jwk', privateKey);
-//     window.localStorage.setItem('privateKey', JSON.stringify(exportedPrivateKey));
-// }
-// generateKeys();
-
-// function generateRSAKeyPair()
-// {
-//     const keyPair = window.crypto.subtle.generateKey(
-//         {
-//             name: "RSA-OAEP",
-//             modulusLength: 2048,
-//             publicExponent: new Uint8Array([1, 0, 1]),
-//             hash: { name: "SHA-256" },
-//         },
-//         true,
-//         ["encrypt", "decrypt"]
-//     );
-
-//     const publicKeyTem = window.crypto.subtle.exportKey('spki', keyPair.publicKey);
-
-//     const publicKeyBase64 = btoa(String.fromCharCode.apply(null, new Uint8Array(publicKeyTem)));
-    
-//     privateKey = keyPair.privateKey;
-//     // publicKey = keyPair.publicKey;
-//     publicKey = `-----BEGIN PUBLIC KEY-----\n${publicKeyBase64.match(/.{1,64}/g).join('\n')}\n-----END PUBLIC KEY-----`;
-//     // Return both PEM-formatted public key and private key
-//     // return publicKeyPEM;
-// }
-
-const generateKeyPair = async () =>
+//#region Encryption
+const generateKeyPair = async (username) =>
 {
     const keyPair = await window.crypto.subtle.generateKey({
         name: "RSA-OAEP",
@@ -86,10 +23,10 @@ const generateKeyPair = async () =>
         hash: { name: "SHA-256" }
     }, true, ["encrypt", "decrypt"]);
 
-    const publicKey = await window.crypto.subtle.exportKey("spki", keyPair.publicKey);
+    const publicKeyTem = await window.crypto.subtle.exportKey("spki", keyPair.publicKey);
 
     // Send the public key to the server in "hello" message
-    const publicKeyBase64 = btoa(String.fromCharCode(...new Uint8Array(publicKey)));
+    const publicKeyBase64 = btoa(String.fromCharCode(...new Uint8Array(publicKeyTem)));
     const helloMessage = {
         data: {
             type: "hello",
@@ -100,8 +37,10 @@ const generateKeyPair = async () =>
     ws.send(JSON.stringify(helloMessage));
 
     // Store the private key locally (for signing and decryption)
-    localStorage.setItem("privateKey", JSON.stringify(keyPair.privateKey));
-    localStorage.setItem("publicKey", publicKeyBase64);
+    // localStorage.setItem("privateKey", JSON.stringify(keyPair.privateKey));
+    // localStorage.setItem("publicKey", publicKeyBase64);
+    privateKey = keyPair.privateKey;
+    publicKey = publicKeyBase64;
 };
 
 // RSA
@@ -340,6 +279,7 @@ async function sendSignedMessage(data)
         console.error('WebSocket is not open. Message not sent.');
     }
 }
+//#endregion
 
 // Forward message functionality
 document.getElementById('forward-btn').addEventListener('click', () =>
@@ -373,33 +313,8 @@ function selectMessage(message, checkbox)
     }
 }
 
-function displayMessage(from, message)
-{
-    // 为消息生成一个唯一标识符，例如使用消息内容和发送者
-    const messageId = `${from}-${message}`;
 
-    // if (processedMessages.has(messageId)) {
-    //     return; // 如果消息已处理，则不重复显示
-    // }
-
-    processedMessages.push(messageId); // 将消息标记为已处理
-
-    const chatMessages = document.getElementById('chat-messages');
-    const messageDiv = document.createElement('div');
-
-    const checkbox = document.createElement('input');
-    checkbox.type = 'checkbox';
-    checkbox.onclick = () => selectMessage(message, checkbox);
-
-    const displayFrom = from === username ? 'You' : from;
-    const messageContent = document.createElement('span');
-    messageContent.textContent = `${displayFrom}: ${message}`;
-
-    messageDiv.appendChild(checkbox);
-    messageDiv.appendChild(messageContent);
-    chatMessages.appendChild(messageDiv);
-}
-
+//#region WebSocket
 // Initialize WebSocket connection
 function initWebSocket()
 {
@@ -410,20 +325,20 @@ function initWebSocket()
     else if (retryAttempts > 1) {
         console.log("Retry attempts:", retryAttempts);
     }
-
     ws = new WebSocket(`ws://${window.location.host}`);
+    generateKeyPair();
 
     ws.onopen = () =>
     {
         retryAttempts = 0;
 
-        console.log("WebSocket connection opened.");
-        ws.send(JSON.stringify({
-            type: 'hello',
-            public_key: publicKey,
-            // name: username,
-            // from: username
-        }));
+        // console.log("WebSocket connection opened.");
+        // ws.send(JSON.stringify({
+        //     type: 'hello',
+        //     public_key: publicKey,
+        //     // name: username,
+        //     // from: username
+        // }));
 
         // server hello
         // ws.send(JSON.stringify({
@@ -501,37 +416,21 @@ function initWebSocket()
         const data = JSON.parse(event.data);
         console.log("Received WebSocket message:", data);
 
-        if (data.type === 'publicKey') {
-            serverPublicKeyPem = data.key; // Set the public key
+        if (data.type === 'client_update') {
+            const clientListContainer = document.getElementById('online-users');
+            clientListContainer.innerHTML = '';
+
+            data.clients.forEach(client =>
+            {
+                const clientItem = document.createElement('li');
+                clientItem.textContent = `Client ID: ${client['client-id']}, Public Key: ${client['public-key']}`;
+                clientListContainer.appendChild(clientItem);
+            });
         }
 
-        // Update the list of online users
-        else if (data.type === 'onlineUsers') {
-            onlineUsers = data.users.map(u => u.username); // Store the updated list of users
-            console.log("Online users:", data.users);
-            updateOnlineUsers(onlineUsers);
-        }
-
-        // Handle private or group messages
-        else if (data.type === 'privateMessage' || data.type === 'groupMessage') {
-            if (data.from !== username) {
-                displayMessage(data.from, data.message); // Show messages from others
-            }
-        }
-
-        // Handle file transfer messages
-        else if (data.type === 'fileTransfer') {
-            // Make sure the fileName and from fields exist in the message
-            if (data.fileName && data.from) {
-                // Ensure the message is unique before displaying
-                const messageId = `${data.from}-${data.fileName}`;
-                // if (!processedFileMessages.has(messageId)) {
-                if (data.from !== username) {
-                    processedFileMessages.push(messageId);
-                    console.log("Received file with id: ", messageId);
-                    displayFileLink(data.from, `${data.fileName}`, data.fileLink);
-                }
-            }
+        else if (data.type === 'public_chat') {
+            console.log('Received public chat message:', data.message);
+            displayMessage(data.sender, data.message);
         }
 
         else if (data.type === 'chat') {
@@ -559,6 +458,24 @@ function initWebSocket()
                 onlineUserList[client["client-id"]] = client["public-key"];
             });
         }
+        
+        else if (data.type === 'publicKey') {
+            serverPublicKeyPem = data.key; // Set the public key
+        }
+
+        else if (data.type === 'fileTransfer') {
+            // Make sure the fileName and from fields exist in the message
+            if (data.fileName && data.from) {
+                // Ensure the message is unique before displaying
+                const messageId = `${data.from}-${data.fileName}`;
+                // if (!processedFileMessages.has(messageId)) {
+                if (data.from !== username) {
+                    processedFileMessages.push(messageId);
+                    console.log("Received file with id: ", messageId);
+                    displayFileLink(data.from, `${data.fileName}`, data.fileLink);
+                }
+            }
+        }
     };
 
     ws.onclose = () =>
@@ -573,8 +490,8 @@ function initWebSocket()
         console.error("WebSocket error:", error);
     };
 }
-
-// Start the chat application
+//#endregion
+//#region DOMContentLoaded
 document.addEventListener("DOMContentLoaded", () =>
 {
     // username = prompt("Enter your name:");
@@ -627,55 +544,51 @@ document.addEventListener("DOMContentLoaded", () =>
         const recipient = document.getElementById('recipient').value;
 
         if (message) {
-            const encryptedMessage = await encryptChatMessage(message, ['sldfjslkdjflr']);
-            console.log('---------------Encrypted message:', encryptedMessage);
-            // const encryptedMessage = await encryptWithAES(message, aesKey);
-            const encryptedAESKey = await exportAndEncryptAESKey();
-            messageCounter++;
+            let messageData;
 
-            // const messageType = recipient === 'group' ? 'groupMessage' : 'privateMessage';
+            if (recipient === 'group') {
+                // Prepare message for group chat (no encryption)
+                messageData = {
+                    type: 'public_chat',
+                    sender: publicKey,
+                    message: message,
+                };
+            } else {
+                // Encrypt the message and AES key for private chat
+                const encryptedMessage = await encryptChatMessage(message, ['sldfjslkdjflr']);
+                console.log('---------------Encrypted message:', encryptedMessage);
 
-            // // Send message to the WebSocket server
-            // const messageObject = {
-            //     type: messageType,
-            //     message: message,
-            //     encryptedMessage: encryptedMessage.encryptedMessage,
-            //     authTag: encryptedMessage.authTag,
-            //     iv: encryptedMessage.iv,
-            //     symm_key: encryptedAESKey,
-            //     to: recipient,
-            //     counter: messageCounter,
-            // };
+                const encryptedAESKey = await exportAndEncryptAESKey(); // Encrypt the AES key
 
-            const messageData = {
-                type: recipient === 'group' ? 'groupMessage' : 'privateMessage',
-                message: message,
-                to: recipient,
-                counter: messageCounter // Example of including the counter
-            };
+                // Prepare message data for private chat
+                messageData = {
+                    type: 'chat',
+                    message: encryptedMessage.encryptedMessage, // Send encrypted message
+                    authTag: encryptedMessage.authTag, // Include authentication tag
+                    iv: encryptedMessage.iv, // Include initialization vector
+                    symm_key: encryptedAESKey, // Include the encrypted AES key
+                    to: recipient, // Recipient's public key
+                    counter: messageCounter++ // Increment counter
+                };
 
-            // Sign the message and include the signature
-            const signature = await signMessage(messageData, messageCounter);
-            messageData.signature = signature;
-
-            const signedMessage = {
-                type: "signed_data",
-                data: messageData,
-                counter: messageCounter,
-                signature: messageData.signature
-            };
+                // Sign the message and include the signature
+                const signature = await signMessage(messageData, messageCounter);
+                messageData.signature = signature; // Add signature to message data
+            }
 
             // Send the message through WebSocket
             if (ws.readyState === WebSocket.OPEN) {
-                ws.send(JSON.stringify(messageData));
+                ws.send(JSON.stringify({ data: messageData })); // Send the message (group or private)
             } else {
                 console.error('WebSocket is not open. Message not sent.');
             }
 
-            displayMessage('You', message); // Display sent message
+            // displayMessage('You', message); // Display sent message
             document.getElementById('message').value = ''; // Clear the input field
         }
     });
+
+
 
     document.getElementById('send-file').addEventListener('click', () =>
     {
@@ -726,29 +639,24 @@ document.addEventListener("DOMContentLoaded", () =>
         }
     });
 });
-
-function updateOnlineUsers(users = [])
+//#endregion
+//#region Display
+function displayMessage(from, message)
 {
-    const onlineUsersList = document.getElementById('online-users');
-    const recipientDropdown = document.getElementById('recipient');
+    const chatMessages = document.getElementById('chat-messages');
+    const messageDiv = document.createElement('div');
 
-    onlineUsersList.innerHTML = '';
-    recipientDropdown.innerHTML = '<option value="group">Group Chat</option>';
+    const checkbox = document.createElement('input');
+    checkbox.type = 'checkbox';
+    checkbox.onclick = () => selectMessage(message, checkbox);
 
-    users.forEach(user =>
-    {
-        // 检查 user 是否为有效的非空字符串
-        if (user && user.trim() !== 'undefined') {
-            const li = document.createElement('li');
-            li.textContent = user;
-            onlineUsersList.appendChild(li);
+    const displayFrom = from === username ? 'You' : from;
+    const messageContent = document.createElement('span');
+    messageContent.textContent = `${displayFrom}: ${message}`;
 
-            const option = document.createElement('option');
-            option.value = user;
-            option.textContent = user;
-            recipientDropdown.appendChild(option);
-        }
-    });
+    messageDiv.appendChild(checkbox);
+    messageDiv.appendChild(messageContent);
+    chatMessages.appendChild(messageDiv);
 }
 
 function displayFileLink(from, fileName, fileLink)
@@ -831,3 +739,4 @@ const varifyChat = (chat) =>
         throw new Error("Malformed UTF-8 data. Decryption might have failed.");
     }
 }
+//#endregion
