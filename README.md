@@ -1,4 +1,4 @@
-# new
+# chat-system
 
 Chat System
 This chat system is written in node.js. The system allows users to send the message and upload files between two or multiple users. Also, users could forward the message to others. This code is written by:
@@ -7,7 +7,7 @@ Yihui He (a1810178)
 Jiawei Hu (a1859543)
 Jessica Xia (a1867906)
 
-The source code is on github: https://github.com/groupSP/new.git.
+The source code is on github: https://github.com/groupSP/chat-system.git.
 
 How to run the code：
 Firstly, please check whether you have downloaded the node.js
