@@ -599,43 +599,42 @@ document.addEventListener("DOMContentLoaded", () =>
             const formData = new FormData();
             formData.append('file', file);
 
-            fetch('/upload', {
+            fetch('/api/upload', {
                 method: 'POST',
                 body: formData
             })
                 .then(response =>
                 {
-                    if (response.ok)
-                        return response.json();
-                    else if (response.status === 413)
+                    if (response.ok) {
+                        return response.json(); // Expect the server to return a JSON with the file URL
+                    } else if (response.status === 413) {
                         console.error('File size too large.');
-                    else
+                    } else {
                         console.error('File upload failed with status:', response.status);
+                    }
                 })
                 .then(data =>
                 {
                     if (!data) return;
-                    const fileName = data.fileName;  // Ensure your server returns the file name upon successful upload
+                    const fileLink = data.file_url;  // Ensure your server returns the unique file URL
                     const recipient = document.getElementById('recipient').value;
-                    const fileLink = `http://${window.location.host}/files/${fileName}`
 
                     // Notify the recipient via WebSocket
                     ws.send(JSON.stringify({
                         type: 'fileTransfer',
-                        fileName: fileName,
+                        fileName: file.name,  // You can use the original file name
                         from: username,
                         to: recipient,
                         timestamp: new Date().toISOString(),
-                        fileLink: fileLink
+                        fileLink: fileLink  // The URL returned from the server
                     }));
 
-                    displayFileLink('You', fileName, fileLink);
+                    displayFileLink('You', file.name, fileLink);
                 })
                 .catch(error =>
                 {
                     console.error('Error uploading file:', error);
                 });
-
         }
     });
 });
@@ -699,20 +698,18 @@ async function verifySignature(data, counter, signature)
     );
 }
 
-async function retrieveFile(fileUrl)
+async function retrieveFile(fileLink)
 {
-    console
     try {
-        const response = await fetch(fileUrl);
+        const response = await fetch(fileLink);
 
         if (response.ok) {
             const blob = await response.blob(); // Get the file as a Blob
             const downloadUrl = URL.createObjectURL(blob);
 
-            // Optionally create an anchor element to download the file
             const a = document.createElement('a');
             a.href = downloadUrl;
-            a.download = 'downloaded-file'; // You can set the default name here
+            a.download = 'downloaded-file';
             document.body.appendChild(a);
             a.click();
             document.body.removeChild(a);

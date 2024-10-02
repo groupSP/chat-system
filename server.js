@@ -8,24 +8,33 @@ const crypto = require('crypto');
 const fs = require('fs');
 const { send } = require('express/lib/response');
 
-// Read server RSA private key
 const privateKey = fs.readFileSync('./private.pem', 'utf8');
-
-// Initialize Express application
 const app = express();
 const server = http.createServer(app);
-
-// Initialize WebSocket server
 const wss = new WebSocket.Server({ server });
-
-// Public key
 const publicKeyPath = path.join(__dirname, 'public', 'public.pem');
-// const publicKeyPath = path.join('public', 'public.pem');
 const serverPublicKey = fs.readFileSync(publicKeyPath, 'utf8');
+const UPLOAD_DIR = path.join(__dirname, 'uploads');
+app.use(express.static(path.join(__dirname, 'public')));
+app.use('/files', express.static(UPLOAD_DIR));
 
-// Set up multer for file uploads
-const upload = multer({ dest: 'uploads/' }); // Files will be stored in the "uploads" folder
-//#endregion
+// Multer configuration for file uploads
+const storage = multer.diskStorage({
+  destination: (req, file, cb) =>
+  {
+    cb(null, UPLOAD_DIR);
+  },
+  filename: (req, file, cb) =>
+  {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    cb(null, uniqueSuffix + path.extname(file.originalname)); // Save the file with a unique name
+  }
+});
+const upload = multer({
+  storage: storage,
+  limits: { fileSize: 10 * 1024 * 1024 }  // 10MB file size limit
+});
+
 
 //#region Variables
 let clients = {};
@@ -153,10 +162,10 @@ function broadcastClientList()
   }
 
   sendToNeighbourhoodServers(clientUpdateMessage);
-  sendToClient(clientUpdateMessage);
+  sendToAllClient(clientUpdateMessage);
 }
 
-function sendToClient(message)
+function sendToAllClient(message)
 {
   console.log("Sending message to client: \n[");
   for (const key in clients) {
@@ -305,96 +314,116 @@ wss.on('connection', (ws) =>
       }
 
       else if (data.type == 'public_chat') {
-        sendToClient({ type: data.type, sender: clients[data.sender]['client-id'], message: data.message });
+        sendToAllClient({ type: data.type, sender: clients[data.sender]['client-id'], message: data.message });
       }
+
+      // Handle client list requests
+      else if (parsedMessage.type === 'client_list_request') {
+        ws.send(JSON.stringify({
+          type: 'client_list',
+          servers: [{
+            address: `${server.address().address}:${server.address().port}`,
+            serverId: "server-id-" + server.address().port,
+            clients: Object.keys(clients).map(publicKey => ({
+              "client-id": clients[publicKey]["client-id"],
+              "public-key": publicKey
+            }))
+          }]
+        }));
+      }
+        
+      else if (data.type === 'fileTransfer') {
+        const fileLink = data.fileLink;
+
+        if (data.to && clients[data.to]) {
+          clients[data.to].send(JSON.stringify({
+            type: 'fileTransfer',
+            from: userName,
+            fileName: data.fileName,
+            fileLink: fileLink
+          }));
+        } else {
+          broadcast({
+            type: 'fileTransfer',
+            from: userName,
+            fileName: data.fileName,
+            fileLink: fileLink
+          });
+        }
+      }
+
+      //   else if (data.type === 'signed_data') {
+      //     const sender = userName;
+      //     const { data: signedData, counter, signature } = data;
+      //     // Check if the counter is greater than the last known counter
+      //     if (messageCounters[sender] >= counter) {
+      //       console.error('Replay attack detected! Counter is not greater than the last value.');
+      //       return; // Reject the message
+      //     }
+
+      //     // Update the last known counter
+      //     messageCounters[sender] = counter;
+      //   }
+
+      //   // Handle forwarding messages (for text only)
+      //   else if (data.type === 'forwardMessage') {
+      //     const originalMessage = data.data.originalMessage;
+      //     const forwardTo = data.data.forwardTo;
+
+      //     if (clients[forwardTo]) {
+      //       clients[forwardTo].send(JSON.stringify({
+      //         type: 'privateMessage',
+      //         from: `${userName} (Forwarded)`,
+      //         message: originalMessage,
+      //       }));
+      //     }
+      //   }
+
+      //   else if (data.type === 'onlineUsers') {
+      //     ws.send(JSON.stringify({ type: 'onlineUsers', users: Array.from(onlineUsers) }));
+      //   }
+
+      //   if (data.counter && data.counter > messageCounters[userName]) {
+      //     messageCounters[userName] = data.counter;
+
+      //     if (data.type === 'privateMessage') {
+      //       const recipientWs = clients[data.to];
+      //       if (recipientWs) {
+      //         recipientWs.send(JSON.stringify({
+      //           type: 'privateMessage',
+      //           from: userName,
+      //           message: data.message
+      //         }));
+      //       }
+      //     } else if (data.type === 'groupMessage') {
+      //       broadcast({
+      //         type: 'groupMessage',
+      //         from: userName,
+      //         message: data.message
+      //       });
+      //     }
+      //   }
+
+      // else if (data.type === 'fileTransfer') {
+      //     const fileLink = `http://${server.address().address}:${server.address().port}/files/${data.fileName}`;
+
+      //     if (data.to && clients[data.to]) {
+      //       clients[data.to].send(JSON.stringify({
+      //         type: 'fileTransfer',
+      //         from: userName,
+      //         fileName: data.fileName,
+      //         fileLink: fileLink
+      //       }));
+      //     } else {
+      //       broadcast({
+      //         type: 'fileTransfer',
+      //         from: userName,
+      //         fileName: data.fileName,
+      //         fileLink: fileLink
+      //       });
+      //     }
+      //   }
     }
-
-    // Handle client list requests
-    //   else if (parsedMessage.type === 'client_list_request') {
-    //     ws.send(JSON.stringify({
-    //       type: 'client_list',
-    //       servers: [{
-    //         address: "server-address", // !
-    //         serverId: "server-id", // !
-    //         clients: Object.keys(clients).map(publicKey => ({
-    //           "client-id": clients[publicKey].clientId,
-    //           "public-key": publicKey
-    //         }))
-    //       }]
-    //     }));
-    //   }
-
-    //   else if (data.type === 'signed_data') {
-    //     const sender = userName;
-    //     const { data: signedData, counter, signature } = data;
-    //     // Check if the counter is greater than the last known counter
-    //     if (messageCounters[sender] >= counter) {
-    //       console.error('Replay attack detected! Counter is not greater than the last value.');
-    //       return; // Reject the message
-    //     }
-
-    //     // Update the last known counter
-    //     messageCounters[sender] = counter;
-    //   }
-
-    //   // Handle forwarding messages (for text only)
-    //   else if (data.type === 'forwardMessage') {
-    //     const originalMessage = data.data.originalMessage;
-    //     const forwardTo = data.data.forwardTo;
-
-    //     if (clients[forwardTo]) {
-    //       clients[forwardTo].send(JSON.stringify({
-    //         type: 'privateMessage',
-    //         from: `${userName} (Forwarded)`,
-    //         message: originalMessage,
-    //       }));
-    //     }
-    //   }
-
-    //   else if (data.type === 'onlineUsers') {
-    //     ws.send(JSON.stringify({ type: 'onlineUsers', users: Array.from(onlineUsers) }));
-    //   }
-
-    //   if (data.counter && data.counter > messageCounters[userName]) {
-    //     messageCounters[userName] = data.counter;
-
-    //     if (data.type === 'privateMessage') {
-    //       const recipientWs = clients[data.to];
-    //       if (recipientWs) {
-    //         recipientWs.send(JSON.stringify({
-    //           type: 'privateMessage',
-    //           from: userName,
-    //           message: data.message
-    //         }));
-    //       }
-    //     } else if (data.type === 'groupMessage') {
-    //       broadcast({
-    //         type: 'groupMessage',
-    //         from: userName,
-    //         message: data.message
-    //       });
-    //     }
-    //   }
-
-    //   if (data.type === 'fileTransfer') {
-    //     const fileLink = `http://${server.address().address}:${server.address().port}/files/${data.fileName}`;
-
-    //     if (data.to && clients[data.to]) {
-    //       clients[data.to].send(JSON.stringify({
-    //         type: 'fileTransfer',
-    //         from: userName,
-    //         fileName: data.fileName,
-    //         fileLink: fileLink
-    //       }));
-    //     } else {
-    //       broadcast({
-    //         type: 'fileTransfer',
-    //         from: userName,
-    //         fileName: data.fileName,
-    //         fileLink: fileLink
-    //       });
-    //     }
-    //   }
   });
 
   ws.on('close', () =>
@@ -439,9 +468,6 @@ app.get('/files/:filename', (req, res) =>
   });
 });
 
-// Serve static resources
-app.use(express.static(path.join(__dirname, 'public')));
-
 // File upload endpoint
 app.post('/upload', upload.single('file'), (req, res) =>
 {
@@ -450,6 +476,17 @@ app.post('/upload', upload.single('file'), (req, res) =>
   }
   const fileName = req.file.filename;
   res.send({ fileName });
+});
+
+app.post('/api/upload', upload.single('file'), (req, res) =>
+{
+  if (!req.file) {
+    return res.status(400).send('No file uploaded');
+  }
+
+  // Generate the unique file URL
+  const fileLink = `http://${req.headers.host}/files/${req.file.filename}`;
+  res.json({ file_url: fileLink });
 });
 //#endregion
 
@@ -493,7 +530,7 @@ app.post('/upload', upload.single('file'), (req, res) =>
 
 // runServer();
 
-PORT = 3001;
+// PORT = 3001;
 server.listen(PORT, () =>
 {
   console.log(`> Server started on port ${PORT}`);
