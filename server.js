@@ -26,7 +26,8 @@ const upload = multer({ dest: 'uploads/' }); // Files will be stored in the "upl
 
 // Store online users
 let clients = {};
-let onlineUsers = new Set();
+let onlineUsers = {};
+let offlineUsers = {};
 let messageCounters = {};
 let PORT = process.env.PORT || 3000;
 

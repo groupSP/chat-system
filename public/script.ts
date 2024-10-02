@@ -1,3 +1,5 @@
+import * as CryptoJS from 'crypto-js';
+
 let ws;
 let username;
 let aesKey; // AES key
@@ -11,45 +13,96 @@ let retryAttempts = 0;
 
 // Server's RSA Public Key (replace with actual PEM key)
 let serverPublicKeyPem = ''; // public key
-let privateKey; // This should be initialized somewhere in your code
+let privateKey;
+let publicKey;
+let publicKeyPEM;
 
-async function loadPrivateKey()
+// async function loadPrivateKey()
+// {
+//     const storedPrivateKey = window.localStorage.getItem('privateKey');
+//     if (storedPrivateKey) {
+//         privateKey = await crypto.subtle.importKey(
+//             'jwk',
+//             JSON.parse(storedPrivateKey),
+//             { name: 'RSA-PSS', hash: { name: 'SHA-256' } },
+//             true,
+//             ['sign']
+//         );
+//     }
+// }
+// loadPrivateKey();
+
+// async function generateKeys()
+// {
+//     const keyPair = await crypto.subtle.generateKey(
+//         {
+//             name: 'RSA-PSS',
+//             modulusLength: 2048,
+//             publicExponent: new Uint8Array([1, 0, 1]),
+//             hash: 'SHA-256',
+//         },
+//         true,
+//         ['sign', 'verify']
+//     );
+//     privateKey = keyPair.privateKey;
+//     const publicKey = keyPair.publicKey;
+
+//     // Optionally store the keys
+//     const exportedPrivateKey = await crypto.subtle.exportKey('jwk', privateKey);
+//     window.localStorage.setItem('privateKey', JSON.stringify(exportedPrivateKey));
+// }
+// generateKeys();
+
+// function generateRSAKeyPair()
+// {
+//     const keyPair = window.crypto.subtle.generateKey(
+//         {
+//             name: "RSA-OAEP",
+//             modulusLength: 2048,
+//             publicExponent: new Uint8Array([1, 0, 1]),
+//             hash: { name: "SHA-256" },
+//         },
+//         true,
+//         ["encrypt", "decrypt"]
+//     );
+
+//     const publicKeyTem = window.crypto.subtle.exportKey('spki', keyPair.publicKey);
+
+//     const publicKeyBase64 = btoa(String.fromCharCode.apply(null, new Uint8Array(publicKeyTem)));
+    
+//     privateKey = keyPair.privateKey;
+//     // publicKey = keyPair.publicKey;
+//     publicKey = `-----BEGIN PUBLIC KEY-----\n${publicKeyBase64.match(/.{1,64}/g).join('\n')}\n-----END PUBLIC KEY-----`;
+//     // Return both PEM-formatted public key and private key
+//     // return publicKeyPEM;
+// }
+
+const generateKeyPair = async () =>
 {
-    const storedPrivateKey = window.localStorage.getItem('privateKey');
-    if (storedPrivateKey) {
-        privateKey = await crypto.subtle.importKey(
-            'jwk',
-            JSON.parse(storedPrivateKey),
-            { name: 'RSA-PSS', hash: { name: 'SHA-256' } },
-            true,
-            ['sign']
-        );
-    }
-}
-loadPrivateKey();
+    const keyPair = await window.crypto.subtle.generateKey({
+        name: "RSA-OAEP",
+        modulusLength: 2048,
+        publicExponent: new Uint8Array([0x01, 0x00, 0x01]), // 65537
+        hash: { name: "SHA-256" }
+    }, true, ["encrypt", "decrypt"]);
 
-async function generateKeys()
-{
-    const keyPair = await crypto.subtle.generateKey(
-        {
-            name: 'RSA-PSS',
-            modulusLength: 2048,
-            publicExponent: new Uint8Array([1, 0, 1]),
-            hash: 'SHA-256',
-        },
-        true,
-        ['sign', 'verify']
-    );
-    privateKey = keyPair.privateKey;
-    const publicKey = keyPair.publicKey;
+    const publicKey = await window.crypto.subtle.exportKey("spki", keyPair.publicKey);
 
-    // Optionally store the keys
-    const exportedPrivateKey = await crypto.subtle.exportKey('jwk', privateKey);
-    window.localStorage.setItem('privateKey', JSON.stringify(exportedPrivateKey));
-}
-generateKeys();
+    // Send the public key to the server in "hello" message
+    const publicKeyBase64 = btoa(String.fromCharCode(...new Uint8Array(publicKey)));
+    const helloMessage = {
+        data: {
+            type: "hello",
+            public_key: publicKeyBase64
+        }
+    };
 
+    ws.send(JSON.stringify(helloMessage));
 
+    // Store the private key locally (for signing and decryption)
+    localStorage.setItem("privateKey", JSON.stringify(keyPair.privateKey));
+    localStorage.setItem("publicKey", publicKeyBase64);
+};
 
 // RSA
 function pemToArrayBuffer(pem)
@@ -165,13 +218,85 @@ function encryptMessage(message)
     });
 }
 
-function decryptWithAES(encryptedData, aesKey, iv)
+function encryptWithRSA(publicKey, aesKeyBase64)
 {
-    const decipher = crypto.createDecipheriv('aes-256-cbc', aesKey, iv);
-    let decrypted = decipher.update(encryptedData, 'base64', 'utf8');
-    decrypted += decipher.final('utf8');
-    return decrypted;
+    // Assume we have an RSA encryption function here
+    // It should use the recipient's public RSA key to encrypt the AES key.
+    const encryptedKey = publicKey.encrypt(aesKeyBase64); // Pseudocode
+    return CryptoJS.enc.Base64.stringify(encryptedKey);
 }
+
+function encryptChatMessage(plainText, recipientPublicKeys)
+{
+    // 1. Generate a random AES key
+    const aesKey = CryptoJS.lib.WordArray.random(32); // 256-bit key
+    const keyBase64 = CryptoJS.enc.Base64.stringify(aesKey);
+
+    // 2. Generate a random IV
+    const iv = CryptoJS.lib.WordArray.random(16);
+
+    // 3. Encrypt the plaintext message with AES
+    const encrypted = CryptoJS.AES.encrypt(plainText, aesKey, {
+        iv: iv,
+        mode: CryptoJS.mode.CBC,
+        padding: CryptoJS.pad.Pkcs7,
+    });
+
+    // 4. Encrypt the AES key with each recipient's public RSA key
+    const encryptedSymmKeys = recipientPublicKeys.map(publicKey =>
+    {
+        return encryptWithRSA(publicKey, keyBase64);
+    });
+
+    // 5. Structure the result
+    const result = {
+        data: {
+            type: "chat",
+            destination_servers: recipientPublicKeys.map(pk => pk.serverAddress), // Placeholder for each recipient's server address
+            iv: iv.toString(CryptoJS.enc.Base64), // Base64 encode the IV
+            symm_keys: encryptedSymmKeys, // AES keys encrypted with each recipient's public RSA key
+            chat: encrypted.ciphertext.toString(CryptoJS.enc.Base64) // Encrypted message in base64
+        }
+    };
+
+    return result;
+}
+
+function decryptWithAES(encryptedData, keyBase64, ivBase64)
+{
+    // Decode the key and IV from Base64
+    const key = CryptoJS.enc.Base64.parse(keyBase64);
+    const iv = CryptoJS.enc.Base64.parse(ivBase64);
+
+    // Decode the encrypted data from Base64
+    const encrypted = CryptoJS.enc.Base64.parse(encryptedData);
+
+    // Decrypt the data
+    const decrypted = CryptoJS.AES.decrypt(
+        { ciphertext: encrypted },
+        key,
+        {
+            iv: iv,
+            mode: CryptoJS.mode.CBC,
+            padding: CryptoJS.pad.Pkcs7,
+        }
+    );
+
+    // Log the decrypted data as a WordArray
+    console.log("Decrypted WordArray:", decrypted);
+
+    // Convert decrypted data to UTF-8 string
+    const decryptedText = decrypted.toString(CryptoJS.enc.Utf8);
+
+    // Check if decrypted text is empty
+    if (!decryptedText) {
+        throw new Error("Decryption failed. Check your key, IV, and encrypted data.");
+    }
+
+    return decryptedText;
+}
+
+
 
 async function exportAndEncryptAESKey()
 {
@@ -188,7 +313,8 @@ async function exportAndEncryptAESKey()
     return btoa(String.fromCharCode.apply(null, new Uint8Array(encryptedAESKey)));
 }
 
-async function sendSignedMessage(data) {
+async function sendSignedMessage(data)
+{
     messageCounter++; // Increment the message counter
     const jData = JSON.stringify(data);
 
@@ -290,21 +416,21 @@ function initWebSocket()
     ws.onopen = () =>
     {
         retryAttempts = 0;
-        
+
         console.log("WebSocket connection opened.");
         ws.send(JSON.stringify({
             type: 'hello',
-            public_key: serverPublicKeyPem,
-            name: username,
-            from: username
+            public_key: publicKey,
+            // name: username,
+            // from: username
         }));
 
         // server hello
-        ws.send(JSON.stringify({
-            type: 'server_hello',
-            sender: window.location.host, // Server IP or host
-            username
-        }));
+        // ws.send(JSON.stringify({
+        //     type: 'server_hello',
+        //     sender: window.location.host, // Server IP or host
+        //     username
+        // }));
     };
 
     async function computeFingerprint(publicKeyPem)
@@ -381,8 +507,8 @@ function initWebSocket()
 
         // Update the list of online users
         else if (data.type === 'onlineUsers') {
-            onlineUsers = data.users.map(u=>u.username || "<undefined username>"); // Store the updated list of users
-            console.log("Online users:", onlineUsers);
+            onlineUsers = data.users.map(u => u.username); // Store the updated list of users
+            console.log("Online users:", data.users);
             updateOnlineUsers(onlineUsers);
         }
 
@@ -409,10 +535,29 @@ function initWebSocket()
         }
 
         else if (data.type === 'chat') {
-            const decryptedMessage = decryptWithAES(data.chat, data.symm_keys[0], Buffer.from(data.iv, 'base64'));
-            console.log('Received chat message:', decryptedMessage);
+            try {
+                varifyChat(data.chat);
+                console.log('Received chat message:', data.chat);
+                console.log('Received symm_keys:', data.symm_keys);
+                console.log('Received iv:', data.iv);
+                const decryptedMessage = decryptWithAES(data.chat, data.symm_keys[0], data.iv);
+                console.log(decryptedMessage);
+                console.log('Received chat message:', decryptedMessage);
 
-            updateUsers(decryptedMessage);
+                updateUsers(decryptedMessage);
+            } catch (error) {
+                console.error("Error decrypting message:", error);
+            }
+        }
+
+        else if (data.type === 'client_list') {
+            const onlineUsers = data.servers.map(server => server.clients).flat();
+
+            // Store public keys of other users in a dictionary
+            onlineUsers.forEach(client =>
+            {
+                onlineUserList[client["client-id"]] = client["public-key"];
+            });
         }
     };
 
@@ -478,10 +623,13 @@ document.addEventListener("DOMContentLoaded", () =>
         event.preventDefault(); // Prevent default form submission
 
         const message = document.getElementById('message').value;
+        console.log('===Message:', message);
         const recipient = document.getElementById('recipient').value;
 
         if (message) {
-            const encryptedMessage = await encryptMessage(message);
+            const encryptedMessage = await encryptChatMessage(message, ['sldfjslkdjflr']);
+            console.log('---------------Encrypted message:', encryptedMessage);
+            // const encryptedMessage = await encryptWithAES(message, aesKey);
             const encryptedAESKey = await exportAndEncryptAESKey();
             messageCounter++;
 
@@ -553,7 +701,7 @@ document.addEventListener("DOMContentLoaded", () =>
                 })
                 .then(data =>
                 {
-                    if(!data) return;
+                    if (!data) return;
                     const fileName = data.fileName;  // Ensure your server returns the file name upon successful upload
                     const recipient = document.getElementById('recipient').value;
                     const fileLink = `http://${window.location.host}/files/${fileName}`
@@ -667,5 +815,19 @@ async function retrieveFile(fileUrl)
         }
     } catch (error) {
         console.error('Error retrieving file:', error);
+    }
+}
+
+const varifyChat = (chat) =>
+{
+    try {
+        const decryptedText = chat.toString(CryptoJS.enc.Utf8);
+        if (!decryptedText) {
+            throw new Error("Decryption yielded empty result.");
+        }
+        return decryptedText;
+    } catch (error) {
+        console.error("Failed to convert decrypted data to UTF-8:", error);
+        throw new Error("Malformed UTF-8 data. Decryption might have failed.");
     }
 }
