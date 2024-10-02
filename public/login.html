@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login pa</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="login-container" id="login-container">
+        <input type="text" id="username" placeholder="Enter your name">
+        <input type="text" id="group" placeholder="Enter group name">
+
+        <button id="login-btn">Login</button>
+    </div>
+
+    <script>
+        // Set default username and group in local storage
+        localStorage.setItem("username", "admin");
+        localStorage.setItem("group", "admin");
+
+        // Add event listener for the login button
+        document.getElementById("login-btn").addEventListener("click", function(event) {
+            event.preventDefault();
+
+            // Correctly accessing the input values using getElementById
+            const username = document.getElementById('username').value; 
+            const group = document.getElementById('group').value;
+
+            console.log(username);
+            console.log(group);
+
+            if (username && group) {
+                if (username === localStorage.getItem("username") && group === localStorage.getItem("group")) {
+                    const queryString = `?username=${encodeURIComponent(username)}&group=${encodeURIComponent(group)}`;
+                    window.location.href = "/public/admin.html" + queryString; // Redirect to admin page
+                } else {
+                    const queryString = `?username=${encodeURIComponent(username)}&group=${encodeURIComponent(group)}`;
+                    window.location.href = "/public/index.html" + queryString; // Redirect to index page
+                }
+            } else {
+                alert("Please enter your username and group name."); // Alert if fields are empty
+            }
+        });
+    </script>
+
+</body>
+</html>
