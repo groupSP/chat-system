@@ -418,15 +418,24 @@ function initWebSocket()
 
         if (data.type === 'client_update') {
             const clientListContainer = document.getElementById('online-users');
+            const recipientSelect = document.getElementById('recipient');
+
             clientListContainer.innerHTML = '';
+            recipientSelect.innerHTML = '<option value="group">Group Chat</option>';
 
             data.clients.forEach(client =>
             {
                 const clientItem = document.createElement('li');
                 clientItem.textContent = `Client ID: ${client['client-id']}, Public Key: ${client['public-key']}`;
                 clientListContainer.appendChild(clientItem);
+
+                const option = document.createElement('option');
+                option.value = client['client-id'];
+                option.textContent = `Client ID: ${client['client-id']}`;
+                recipientSelect.appendChild(option);
             });
         }
+
 
         else if (data.type === 'public_chat') {
             console.log('Received public chat message:', data.message);
