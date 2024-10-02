@@ -5,13 +5,13 @@ let iv; // Initialization vector (IV)
 let messageCounter = 0; // Message counter
 let selectedMessages = []; // Stores selected messages
 let onlineUsers = []; // Stores online users
+let heartbeatId;
 
 // Server's RSA Public Key (replace with actual PEM key)
 let serverPublicKeyPem = ''; // public key
 let privateKey; // This should be initialized somewhere in your code
 
-async function loadPrivateKey()
-{
+async function loadPrivateKey() {
     const storedPrivateKey = window.localStorage.getItem('privateKey');
     if (storedPrivateKey) {
         privateKey = await crypto.subtle.importKey(
@@ -25,8 +25,7 @@ async function loadPrivateKey()
 }
 loadPrivateKey();
 
-async function generateKeys()
-{
+async function generateKeys() {
     const keyPair = await crypto.subtle.generateKey(
         {
             name: 'RSA-PSS',
@@ -49,8 +48,7 @@ generateKeys();
 
 
 // RSA
-function pemToArrayBuffer(pem)
-{
+function pemToArrayBuffer(pem) {
     const b64Lines = pem.replace(/(-----(BEGIN|END) PUBLIC KEY-----|\n)/g, '');
     const b64 = atob(b64Lines);
     const buffer = new ArrayBuffer(b64.length);
@@ -61,8 +59,7 @@ function pemToArrayBuffer(pem)
     return buffer;
 }
 
-async function signMessage(message, messageCounter)
-{
+async function signMessage(message, messageCounter) {
     if (!privateKey) {
         console.error('Private key is not defined');
         return;
@@ -81,8 +78,7 @@ async function signMessage(message, messageCounter)
 }
 
 
-async function importServerPublicKey(pemKey)
-{
+async function importServerPublicKey(pemKey) {
     const keyBuffer = pemToArrayBuffer(pemKey);
     return await window.crypto.subtle.importKey(
         'spki',
@@ -96,8 +92,7 @@ async function importServerPublicKey(pemKey)
     );
 }
 
-async function fetchPublicKey()
-{
+async function fetchPublicKey() {
     try {
         const response = await fetch('/public-key');
         const data = await response.json();
@@ -113,8 +108,7 @@ async function fetchPublicKey()
     }
 }
 
-function generateAESKey()
-{
+function generateAESKey() {
     window.crypto.subtle.generateKey(
         {
             name: "AES-GCM",
@@ -122,18 +116,15 @@ function generateAESKey()
         },
         true,
         ["encrypt", "decrypt"]
-    ).then(key =>
-    {
+    ).then(key => {
         aesKey = key;
         console.log('AES Key Generated', aesKey);
-    }).catch(err =>
-    {
+    }).catch(err => {
         console.error('Error generating AES key:', err);
     });
 }
 
-function encryptMessage(message)
-{
+function encryptMessage(message) {
     iv = window.crypto.getRandomValues(new Uint8Array(12));
     const encoder = new TextEncoder();
     const encodedMessage = encoder.encode(message);
@@ -145,8 +136,7 @@ function encryptMessage(message)
         },
         aesKey,
         encodedMessage
-    ).then(encryptedMessage =>
-    {
+    ).then(encryptedMessage => {
         const encryptedArray = new Uint8Array(encryptedMessage);
         const ciphertext = encryptedArray.slice(0, -16);
         const authTag = encryptedArray.slice(-16);
@@ -156,14 +146,12 @@ function encryptMessage(message)
             authTag: btoa(String.fromCharCode.apply(null, authTag)),
             iv: btoa(String.fromCharCode.apply(null, iv))
         };
-    }).catch(err =>
-    {
+    }).catch(err => {
         console.error('Error encrypting message:', err);
     });
 }
 
-async function exportAndEncryptAESKey()
-{
+async function exportAndEncryptAESKey() {
     const rawAESKey = await window.crypto.subtle.exportKey('raw', aesKey);
     const publicKey = await importServerPublicKey(serverPublicKeyPem);
     const encryptedAESKey = await window.crypto.subtle.encrypt(
@@ -178,12 +166,10 @@ async function exportAndEncryptAESKey()
 }
 
 // Forward message functionality
-document.getElementById('forward-btn').addEventListener('click', () =>
-{
+document.getElementById('forward-btn').addEventListener('click', () => {
     const selectedUser = document.getElementById('forward-user-list').value;
 
-    selectedMessages.forEach(message =>
-    {
+    selectedMessages.forEach(message => {
         // Forwarding only text messages
         ws.send(JSON.stringify({
             type: 'forwardMessage',
@@ -200,8 +186,7 @@ document.getElementById('forward-btn').addEventListener('click', () =>
     selectedMessages = [];
 });
 
-function selectMessage(message, checkbox)
-{
+function selectMessage(message, checkbox) {
     if (checkbox.checked) {
         selectedMessages.push(message);
     } else {
@@ -211,8 +196,8 @@ function selectMessage(message, checkbox)
 
 let processedMessages = new Set(); // 存储已经处理的消息ID
 
-function displayMessage(from, message)
-{
+
+function displayMessage(from, message) {
     // 为消息生成一个唯一标识符，例如使用消息内容和发送者
     const messageId = `${from}-${message}`;
 
@@ -239,17 +224,16 @@ function displayMessage(from, message)
 }
 
 // Initialize WebSocket connection
-function initWebSocket()
-{
+function initWebSocket() {
     if (ws && ws.readyState === WebSocket.OPEN) {
         console.log("WebSocket already connected.");
         ws.close();
     }
 
     ws = new WebSocket(`ws://${window.location.host}`);
+    // ws = new WebSocket('ws://localhost:3000')
 
-    ws.onopen = () =>
-    {
+    ws.onopen = () => {
         console.log("WebSocket connection opened.");
         ws.send(JSON.stringify({
             type: 'hello',
@@ -257,18 +241,30 @@ function initWebSocket()
             name: username,
             from: username
         }));
+
+        // server hello
+        ws.send(JSON.stringify({
+            type: 'server_hello',
+            sender: window.location.host // Server IP or host
+        }));
+
+        heartbeatId = setInterval(() => {
+            const heartbeat = {
+                type: 'heartbeat'
+            };
+            ws.send(JSON.stringify(heartbeat));
+            console.info('Send WebSocket message: ', heartbeat);
+        }, 45 * 1000);
     };
 
-    async function computeFingerprint(publicKeyPem)
-    {
+    async function computeFingerprint(publicKeyPem) {
         const keyBuffer = pemToArrayBuffer(publicKeyPem);
         const hash = await window.crypto.subtle.digest('SHA-256', keyBuffer);
         return btoa(String.fromCharCode.apply(null, new Uint8Array(hash)));
     }
 
     // Forward button opens the modal to choose the recipient
-    document.getElementById('forward-file').addEventListener('click', () =>
-    {
+    document.getElementById('forward-file').addEventListener('click', () => {
         const modal = document.getElementById('forward-modal');
         const forwardList = document.getElementById('forward-user-list');
 
@@ -276,13 +272,14 @@ function initWebSocket()
         forwardList.innerHTML = '';
 
         // Populate the online user list, excluding the current user and ignoring undefined or empty users
-        onlineUsers.forEach(user =>
-        {
-            if (user !== username && user && user.trim() !== 'undefined') {
+        onlineUsers.forEach(user => {
+            if (user.name !== username && user.name && user.name.trim() !== 'undefined') {
                 const option = document.createElement('option');
-                option.value = user;
-                option.textContent = user;
-                forwardList.appendChild(option);
+                option.value = user.name;
+                option.textContent = user.name;
+                if (user.status === 1) {
+                    forwardList.appendChild(option);
+                }
             }
         });
 
@@ -291,12 +288,10 @@ function initWebSocket()
     });
 
     // Forwarding the selected message to the chosen user
-    document.getElementById('forward-btn').addEventListener('click', () =>
-    {
+    document.getElementById('forward-btn').addEventListener('click', () => {
         const selectedUser = document.getElementById('forward-user-list').value;
 
-        selectedMessages.forEach(message =>
-        {
+        selectedMessages.forEach(message => {
             // Forwarding the message to the selected user
             ws.send(JSON.stringify({
                 type: 'forwardMessage',
@@ -316,16 +311,14 @@ function initWebSocket()
     });
 
     // Cancel the forward action and hide the modal
-    document.getElementById('cancel-forward-btn').addEventListener('click', () =>
-    {
+    document.getElementById('cancel-forward-btn').addEventListener('click', () => {
         document.getElementById('forward-modal').style.display = 'none';
         selectedMessages = []; // Clear selected messages
     });
 
     let processedFileMessages = new Set(); // Store processed file messages
 
-    ws.onmessage = (event) =>
-    {
+    ws.onmessage = (event) => {
         const data = JSON.parse(event.data);
         console.log("Received WebSocket message:", data);
 
@@ -362,43 +355,39 @@ function initWebSocket()
         // Handle any other types of messages you may have
     };
 
-    ws.onclose = () =>
-    {
+    ws.onclose = () => {
         console.log("WebSocket connection closed.");
+        clearInterval(heartbeatId);
         setTimeout(initWebSocket, 2000); // Try to reconnect every 2 seconds
     };
 
-    ws.onerror = (error) =>
-    {
+    ws.onerror = (error) => {
         console.error("WebSocket error:", error);
+        clearInterval(heartbeatId);
     };
 }
 
 // Update the online user list in the UI
-function updateOnlineUsers(users)
-{
+function updateOnlineUsers(users) {
     const userListElement = document.getElementById('user-list');
     userListElement.innerHTML = ''; // Clear the current list
 
-    users.forEach(user =>
-    {
+    users.forEach(user => {
         const li = document.createElement('li');
-        li.textContent = user;
+        li.textContent = user.name;
         userListElement.appendChild(li);
     });
 }
 
 // Start the chat application
-document.addEventListener("DOMContentLoaded", () =>
-{
+document.addEventListener("DOMContentLoaded", () => {
     // username = prompt("Enter your name:");
     // generateAESKey(); // Generate AES key when the app loads
     // fetchPublicKey(); // Fetch server's public key
     // initWebSocket(); // Initialize WebSocket connection
 
     // Handle sending messages
-    document.getElementById('login-btn').addEventListener('click', () =>
-    {
+    document.getElementById('login-btn').addEventListener('click', () => {
         username = document.getElementById('username').value.trim();
 
         if (username) {
@@ -413,8 +402,7 @@ document.addEventListener("DOMContentLoaded", () =>
         }
     });
 
-    document.getElementById('send-message').addEventListener('click', async (event) =>
-    {
+    document.getElementById('send-message').addEventListener('click', async (event) => {
         event.preventDefault(); // Prevent default form submission
 
         const message = document.getElementById('message').value;
@@ -455,8 +443,7 @@ document.addEventListener("DOMContentLoaded", () =>
         }
     });
 
-    document.getElementById('send-file').addEventListener('click', () =>
-    {
+    document.getElementById('send-file').addEventListener('click', () => {
         const fileInput = document.getElementById('file-input');
         const file = fileInput.files[0];
 
@@ -468,8 +455,7 @@ document.addEventListener("DOMContentLoaded", () =>
                 method: 'POST',
                 body: formData
             })
-                .then(response =>
-                {
+                .then(response => {
                     if (response.ok)
                         return response.json();
                     else if (response.status === 413)
@@ -477,9 +463,8 @@ document.addEventListener("DOMContentLoaded", () =>
                     else
                         console.error('File upload failed with status:', response.status);
                 })
-                .then(data =>
-                {
-                    if(!data) return;
+                .then(data => {
+                    if (!data) return;
                     const fileName = data.fileName;  // Ensure your server returns the file name upon successful upload
                     const recipient = document.getElementById('recipient').value;
                     const fileLink = `http://localhost:3000/files/${fileName}`
@@ -496,8 +481,7 @@ document.addEventListener("DOMContentLoaded", () =>
 
                     displayFileLink('You', fileName, fileLink);
                 })
-                .catch(error =>
-                {
+                .catch(error => {
                     console.error('Error uploading file:', error);
                 });
 
@@ -507,32 +491,37 @@ document.addEventListener("DOMContentLoaded", () =>
 
 
 
-function updateOnlineUsers(users = [])
-{
+function updateOnlineUsers(users = []) {
     const onlineUsersList = document.getElementById('online-users');
+    const offlineUsersList = document.getElementById('offline-users');
     const recipientDropdown = document.getElementById('recipient');
 
     onlineUsersList.innerHTML = '';
+    offlineUsersList.innerHTML = '';
     recipientDropdown.innerHTML = '<option value="group">Group Chat</option>';
 
-    users.forEach(user =>
-    {
+    users.forEach(user => {
         // 检查 user 是否为有效的非空字符串
-        if (user && user.trim() !== 'undefined') {
+        if (user && user.name.trim() !== 'undefined') {
             const li = document.createElement('li');
-            li.textContent = user;
-            onlineUsersList.appendChild(li);
+            li.textContent = user.name;
+            if (user.status === 1) {
+                onlineUsersList.appendChild(li);
+            } else {
+                offlineUsersList.appendChild(li);
+            }
 
-            const option = document.createElement('option');
-            option.value = user;
-            option.textContent = user;
-            recipientDropdown.appendChild(option);
+            if (user.status === 1) {
+                const option = document.createElement('option');
+                option.value = user.name;
+                option.textContent = user.name;
+                recipientDropdown.appendChild(option);
+            }
         }
     });
 }
 
-function displayFileLink(from, fileName, fileLink)
-{
+function displayFileLink(from, fileName, fileLink) {
     const chatMessages = document.getElementById('chat-messages');
     const messageDiv = document.createElement('div');
 
@@ -552,8 +541,7 @@ function displayFileLink(from, fileName, fileLink)
     chatMessages.appendChild(messageDiv);
 }
 
-async function verifySignature(data, counter, signature)
-{
+async function verifySignature(data, counter, signature) {
     const encoder = new TextEncoder();
     const messageToVerify = encoder.encode(JSON.stringify(data) + counter);
 
@@ -571,8 +559,7 @@ async function verifySignature(data, counter, signature)
     );
 }
 
-async function retrieveFile(fileUrl)
-{
+async function retrieveFile(fileUrl) {
     console
     try {
         const response = await fetch(fileUrl);

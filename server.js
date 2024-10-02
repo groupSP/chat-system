@@ -25,7 +25,11 @@ const upload = multer({ dest: 'uploads/' }); // Files will be stored in the "upl
 
 // Store online users
 let clients = {};
+
+// Store user status, 0:offline 1:online 2:mute
+let userInfos = {};
 let messageCounters = {};
+let lastHeartBeats = {};
 
 // RSA Decrypt AES Key Function
 function decryptAESKey(encryptedKey) {
@@ -47,7 +51,7 @@ function decryptAESKey(encryptedKey) {
 
 // Broadcast the online user list
 function broadcastOnlineUsers() {
-  const onlineUsers = Object.keys(clients);
+  const onlineUsers = Object.values(userInfos);
   broadcast({
     type: 'onlineUsers',
     users: onlineUsers
@@ -72,13 +76,43 @@ wss.on('connection', (ws) => {
   ws.send(JSON.stringify({ type: 'publicKey', key: serverPublicKey }));
   let userName = '';
 
+  // server hello
+  ws.send(JSON.stringify({
+    type: 'server_hello',
+    sender: server.address().address
+  }));
+
   ws.on('message', (message) => {
     const data = JSON.parse(message);
+
+    if (data.type === 'server_hello') {
+      console.log(`Received server_hello from: ${data.sender}`);
+    }
 
     if (data.type === 'hello') {
       userName = data.name;
       clients[userName] = ws;
       messageCounters[userName] = 0;
+      userInfos[userName] = {
+        name: userName,
+        status: 1
+      };
+      lastHeartBeats[userName] = new Date()
+      setTimeout(() => {
+        if (lastHeartBeats[userName]) {
+          let diff = new Date().getTime() - lastHeartBeats[userName].getTime();
+          let seconds = Math.floor((diff % (1000 * 60)) / 1000);
+          if (seconds >= 60) {
+            delete clients[userName];
+            delete messageCounters[userName];
+            delete lastHeartBeats[userName];
+            userInfos[userName].status = 0;
+            broadcastOnlineUsers();
+            console.info('client ' + userName + ' timeout');
+          }
+        }
+      }, 60 * 1000)
+
       broadcastOnlineUsers();
     }
 
@@ -88,13 +122,29 @@ wss.on('connection', (ws) => {
       const forwardTo = data.data.forwardTo;
 
       if (clients[forwardTo]) {
-          clients[forwardTo].send(JSON.stringify({
-              type: 'privateMessage',
-              from: `${userName} (Forwarded)`,
-              message: originalMessage,
-          }));
+        clients[forwardTo].send(JSON.stringify({
+          type: 'privateMessage',
+          from: `${userName} (Forwarded)`,
+          message: originalMessage,
+        }));
       }
-  }
+    }
+    if (data.type === 'heartbeat') {
+      lastHeartBeats[userName] = new Date()
+      setTimeout(() => {
+        if (lastHeartBeats[userName]) {
+          let diff = new Date().getTime() - lastHeartBeats[userName].getTime();
+          let seconds = Math.floor((diff % (1000 * 60)) / 1000);
+          if (seconds >= 60) {
+            delete clients[userName];
+            delete messageCounters[userName];
+            delete lastHeartBeats[userName];
+            broadcastOnlineUsers();
+            console.info('client ' + userName + ' timeout');
+          }
+        }
+      }, 60 * 1000)
+    }
 
     if (data.counter && data.counter > messageCounters[userName]) {
       messageCounters[userName] = data.counter;
@@ -140,6 +190,7 @@ wss.on('connection', (ws) => {
 
   ws.on('close', () => {
     delete clients[userName];
+    userInfos[userName].status = 0;
     broadcastOnlineUsers();
   });
 });
