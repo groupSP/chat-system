@@ -224,6 +224,32 @@ function generateClientId()
 }
 //#endregion
 
+const wsClient = new WebSocket('ws://localhost:3000');
+
+wsClient.on('open', () =>
+{
+  console.log('Connected to server on port 3000');
+
+  // You can send messages to server 3000 like this:
+  wsClient.send(JSON.stringify({
+    data: {
+      type: 'server_hello',
+      sender: 'server_3001',
+      message: 'Hello from server 3001!'
+    }
+  }));
+});
+
+wsClient.on('message', (message) =>
+{
+  console.log('Received from server 3000:', message);
+});
+
+wsClient.on('close', () =>
+{
+  console.log('Connection closed');
+});
+
 //#region WebSocket
 wss.on('connection', (ws) =>
 {
@@ -377,14 +403,14 @@ wss.on('connection', (ws) =>
     // broadcastOnlineUsers();
   });
 
-  console.log('sending client_update_request');
-  serverWs.send(JSON.stringify({ type: "client_update_request" }));
-  console.log('sending server_hello');
-  serverWs.send(JSON.stringify({
-    data: {
-      type: "server_hello",
-      sender: server.address().address,
-  } }));
+  // console.log('sending client_update_request');
+  // serverWs.send(JSON.stringify({ type: "client_update_request" }));
+  // console.log('sending server_hello');
+  // serverWs.send(JSON.stringify({
+  //   data: {
+  //     type: "server_hello",
+  //     sender: server.address().address,
+  // } }));
 });
 
 
@@ -467,7 +493,7 @@ app.post('/upload', upload.single('file'), (req, res) =>
 
 // runServer();
 
-// PORT = 3001;
+PORT = 3001;
 server.listen(PORT, () =>
 {
   console.log(`> Server started on port ${PORT}`);
