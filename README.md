@@ -15,6 +15,7 @@ In the terminal please run:
 node -v: (check whether you have node.js, if not, please go to https://nodejs.org/en to download)
 npm install (install project dependencies)
 npm start (running the code)
+http://localhost:3000/
 
 Functions:
 User list: show all online users.
